@@ -1,5 +1,6 @@
 #!/bin/bash
 exec 2> /dev/null
+set -euo pipefail
 if [ "$(id -u)" != "0" ]; then
    echo "NEED ROOT LOGIN! ERROR 0x28000" >&2
    exit 1
