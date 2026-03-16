@@ -1,1 +1,1 @@
-# 4n0mal_ch3ck
+This is a first-aid-script for checking up for perhaps anomalies, like looking for zombie-processes, frozen cron tasks, unusual processes, ssh anomalies and other thing, that we can name 'f*cking' for the system. You can just run script like 'your@nick~$ sudo sh 4nomal_ch3ck.sh'
