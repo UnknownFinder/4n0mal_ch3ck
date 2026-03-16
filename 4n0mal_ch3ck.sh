@@ -1,0 +1,176 @@
+#!/bin/bash
+exec 2> /dev/null
+if [ "$(id -u)" != "0" ]; then
+   echo "NEED ROOT LOGIN! ERROR 0x28000" >&2
+   exit 1
+fi
+clear
+cat eye.txt
+sleep 5
+clear
+echo "=== System Monitor Script started at $(date) ==="
+# Поиск и обработка Zombie-процессов
+echo "=== Checking for zombie processes ==="
+zombies=$(ps aux | awk '$8 ~ /^[Zz]/ {print $2}')
+if [ -n "$zombies" ]; then
+    echo "Zombie processes found: $zombies"
+    for zombie in $zombies; do
+        # Получаем родительский процесс
+        parent_pid=$(ps -o ppid= -p $zombie 2>/dev/null | tr -d ' ')
+        if [ -n "$parent_pid" ] && [ "$parent_pid" -ne 1 ]; then
+            echo "Killing parent process $parent_pid of zombie $zombie"
+            kill -9 $parent_pid 2>/dev/null
+        else
+            echo "Cannot kill zombie $zombie (parent is init or not found)"
+        fi
+    done
+else
+    echo "No zombie processes found."
+fi
+sleep 1
+echo "=== Checking up for frozen cron tasks ==="
+# Максимальное время выполнения задачи (в секундах)
+MAX=1800   # 30 минут
+now=$(date +%s)
+# Ищем процессы, которые запустил cron
+ps -eo pid,ppid,etimes,args --no-headers 2>/dev/null | while read -r pid ppid etimes cmd; do
+    # ppid == 1 и команды в /etc/cron* — частый кейс
+    if [[ "$ppid" -eq 1 ]] && echo "$cmd" | grep -q cron; then
+        continue
+    fi
+    # Задачи cron обычно запускаются как sh -c "..."
+    if echo "$cmd" | grep -q '/etc/cron\|CRON'; then
+        if (( "$etimes" > "$MAX" )); then
+            echo "Зависшая задача: PID=$pid, работает уже ${etimes}s"
+        fi
+    fi
+done
+echo "No more tasks are frozen"
+sleep 1
+# Поиск аномальных процессов
+echo "=== Searching anomaly processes ==="
+sleep 2
+# Процессы, запущенные из /tmp, /dev, /run — подозрительно
+echo "Processes of temporary directories:"
+ps axeo pid,comm,args | grep -E '/(tmp|dev|run)/' | grep -v grep
+# Процессы без имени (заглушки или rootkit-обфускация)
+echo "Unnamed processes:"
+ps axeo pid,comm | awk '$2 == "[]" || $2 == ""'
+# Подозрительные net-соединения (в обход ssh, http, https)
+echo "Non-tipical incoming connections:"
+lsof -i -nP | grep LISTEN | grep -Ev ':(22|80|443)' | grep -v "COMMAND"
+sleep 1
+# Поиск процессов, превышающих установленные пороги
+echo "=== Checking for high resource usage ==="
+max_cpu=80
+max_ram=80
+
+# Получаем список процессов с использованием top
+top_output=$(top -bn1)
+high_cpu_proc=$(echo "$top_output" | tail -n +7 | awk -v tresh="$max_cpu" '{if ($9+0 >= tresh) print $1}' | sort -u)
+high_ram_proc=$(echo "$top_output" | tail -n +7 | awk -v tresh="$max_ram" '{if ($10+0 >= tresh) print $1}' | sort -u)
+
+if [ -n "$high_cpu_proc" ] || [ -n "$high_ram_proc" ]; then
+    echo "Warning! Overloading is detected."
+    all_procs=$(echo "$high_cpu_proc $high_ram_proc" | tr ' ' '\n' | sort -u)
+    for pid in $all_procs; do
+        # Проверяем, существует ли процесс и не является ли он системным
+        if [ ps -p $pid > /dev/null 2>&1 ]; then
+            # Пропускаем важные системные процессы
+            if [ $pid -eq 1 ] || [ $pid -eq 2 ] || [ $pid -eq $$ ]; then
+                echo "Skipping system/self process $pid"
+                continue
+            fi
+            echo "Changing priority for process $pid"
+            renice 15 -p $pid 2>/dev/null || echo "Failed to renice process $pid"
+        fi
+    done
+else
+    echo "Overloading is not detected."
+fi
+
+# Обработка экстремальной нагрузки
+echo "=== Checking for extreme resource usage ==="
+ex_cpu=95
+ex_mem=95
+
+ex_cpu_proc=$(echo "$top_output" | tail -n +7 | awk -v tresh="$ex_cpu" '{if ($9+0 >= tresh) print $1}' | sort -u)
+ex_mem_proc=$(echo "$top_output" | tail -n +7 | awk -v tresh="$ex_mem" '{if ($10+0 >= tresh) print $1}' | sort -u)
+
+if [ -n "$ex_cpu_proc" ] || [ -n "$ex_mem_proc" ]; then
+    echo "Warning! Extremely high load!"
+    all_ex_procs=$(echo "$ex_cpu_proc $ex_mem_proc" | tr ' ' '\n' | sort -u)
+    for pid in $all_ex_procs; do
+        # Проверяем, существует ли процесс
+        if ps -p $pid > /dev/null 2>&1; then
+            # Пропускаем важные системные процессы
+            if [ $pid -eq 1 ] || [ $pid -eq 2 ] || [ $pid -eq $$ ]; then
+                echo "Skipping system/self process $pid"
+                continue
+            fi
+            # Сначала пробуем SIGTERM (15), затем SIGKILL (9)
+            echo "Terminating process $pid"
+            kill -15 $pid 2>/dev/null
+            sleep 2
+            # Проверяем, жив ли еще процесс
+            if ps -p $pid > /dev/null 2>&1; then
+                echo "Force killing process $pid"
+                kill -9 $pid 2>/dev/null
+            fi
+        fi
+    done
+else
+    echo "No extreme load detected."
+fi
+LOG_FILE="/var/log/listen_watch.log"
+STATE_DIR="/var/lib/listen_watch"
+STATE_FILE="$STATE_DIR/ports.txt"
+mkdir -p "$STATE_DIR"
+echo "=== Checking up listening ports ===" | tee -a "$LOG_FILE"
+CURR=$(mktemp)
+ss -tulpnH 2>/dev/null | awk '{print $1, $5}' | sort -u > "$CURR"
+
+if [ ! -f "$STATE_FILE" ]; then
+	cp "$CURR" "$STATE_FILE"
+	echo "Base of listening ports is created." | tee -a "$LOG_FILE"
+	rm -f "$CURR"
+	exit 0
+fi
+ADDED=$(comm -13 "$STATE_FILE" "$CURR")
+REMOVED=$(comm -23 "$STATE_FILE" "$CURR")
+[ -n "$ADDED" ] && echo "New ports: " | tee -a "$LOG_FILE" && echo "$ADDED" | tee -a "$LOG_FILE"
+[ -n "$REMOVED" ] && echo "Closed ports:" | tee -a "$LOG_FILE" && echo "$REMOVED" | tee -a "$LOG_FILE"
+[ -z "$ADDED""$REMOVED" ] && echo "Nothing changed." | tee -a "$LOG_FILE"
+
+cp "$CURR" "$STATE_FILE"
+rm -f "$CURR"
+echo "=== Checking up for strange things with SSH ==="
+sleep 1
+rm alarm.log 2>/dev/null
+date && timedatectl >> alarm.log
+w >> alarm.log
+who >> alarm.log
+ps auxww >> alarm.log
+netstat -tulpn >> alarm.log
+ss -tulpn >> alarm.log
+netstat -an | grep ESTABLISHED >> alarm.log
+cat /etc/passwd ; lastlog
+last -f /var/log/wtmp >> alarm.log
+last -f /var/log/btmp >> alarm.log
+crontab -l >> alarm.log
+for user in $(cat /etc/passwd | cut -d: -f1); do crontab -u $user -l >> alarm.log ; 2>/dev/null; done
+find /bin /sbin -type f -mtime -l >> alarm.log
+find /root /home -name "authorized_keys" >> alarm.log 2>/dev/null
+#history
+sudo cat /root/.bash_history >> alarm.log
+tail -100 /var/log/auth.log >> alarm.log
+journalctl -xe --lines=50 >> alarm.log
+route -n >> alarm.log
+ip route show >> alarm.log
+arp -a >> alarm.log
+lsof -i -P -n | grep LISTEN >> alarm.log
+lsof -i -P -n | grep ESTABLISHED >> alarm.log
+echo "=== Checking up for NOPASSWD-commands ==="
+sudo -l | grep NOPASSWD
+echo ""
+echo "=== System Monitor Script finished at $(date) ==="
