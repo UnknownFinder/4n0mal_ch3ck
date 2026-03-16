@@ -4,6 +4,11 @@ if [ "$(id -u)" != "0" ]; then
    echo "NEED ROOT LOGIN! ERROR 0x28000" >&2
    exit 1
 fi
+RED='\033[31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0,'
 clear
 cat eye.txt
 sleep 5
@@ -50,6 +55,18 @@ sleep 1
 # Поиск аномальных процессов
 echo "=== Searching anomaly processes ==="
 sleep 2
+# Сравнимаем вывод ps и содержимое /proc
+echo "Comparing ss output and /proc content"
+ps_pid=$(ps -e -o pid= | sort -n)
+proc_pids=$(ls /proc/ | grep -E '^[0-9]+$' | sort -n)
+hidden_pids=$(comm -23 <(echo "$proc_pids") <(echo "$ps_pids"))
+if [ -n "$hidden_pids" ]; then
+	echo "Strange hidden PIDS:"
+	for pid in $hidden_pids; do
+		ls -l /proc/$pid/exe 2>/dev/null
+		cat /proc/$pid/cmdline 2>/dev/null | tr '\0' ' '
+	done
+fi
 # Процессы, запущенные из /tmp, /dev, /run — подозрительно
 echo "Processes of temporary directories:"
 ps axeo pid,comm,args | grep -E '/(tmp|dev|run)/' | grep -v grep
