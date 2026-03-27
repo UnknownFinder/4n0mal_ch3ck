@@ -1,20 +1,23 @@
 #!/bin/bash
 exec 2> /dev/null
 set -euo pipefail
-if [ "$(id -u)" != "0" ]; then
-   echo "NEED ROOT LOGIN! ERROR 0x28000" >&2
-   exit 1
-fi
+LOG_FILE="/var/log/listen_watch.log"
+STATE_DIR="/var/lib/listen_watch"
+STATE_FILE="$STATE_DIR/ports.txt"
+mkdir -p "$STATE_DIR"
 RED='\033[31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0,'
-clear
-cat eye.txt
-sleep 5
-clear
-echo "=== System Monitor Script started at $(date) ==="
+#modules
+rtchk(){
+if [ "$(id -u)" != "0" ]; then
+   echo "NEED ROOT LOGIN! ERROR 0x28000" >&2
+   exit 1
+fi
+}
+zmbkiller(){
 # Поиск и обработка Zombie-процессов
 echo "=== Checking for zombie processes ==="
 zombies=$(ps aux | awk '$8 ~ /^[Zz]/ {print $2}')
@@ -33,7 +36,9 @@ if [ -n "$zombies" ]; then
 else
     echo "No zombie processes found."
 fi
+}
 sleep 1
+slpcron(){
 echo "=== Checking up for frozen cron tasks ==="
 # Максимальное время выполнения задачи (в секундах)
 MAX=1800   # 30 минут
@@ -52,7 +57,9 @@ ps -eo pid,ppid,etimes,args --no-headers 2>/dev/null | while read -r pid ppid et
     fi
 done
 echo "No more tasks are frozen"
+}
 sleep 1
+nmpproc(){
 # Поиск аномальных процессов
 echo "=== Searching anomaly processes ==="
 sleep 2
@@ -106,7 +113,6 @@ if [ -n "$high_cpu_proc" ] || [ -n "$high_ram_proc" ]; then
 else
     echo "Overloading is not detected."
 fi
-
 # Обработка экстремальной нагрузки
 echo "=== Checking for extreme resource usage ==="
 ex_cpu=95
@@ -140,10 +146,12 @@ if [ -n "$ex_cpu_proc" ] || [ -n "$ex_mem_proc" ]; then
 else
     echo "No extreme load detected."
 fi
+}
 LOG_FILE="/var/log/listen_watch.log"
 STATE_DIR="/var/lib/listen_watch"
 STATE_FILE="$STATE_DIR/ports.txt"
 mkdir -p "$STATE_DIR"
+ntwcheck(){
 echo "=== Checking up listening ports ===" | tee -a "$LOG_FILE"
 CURR=$(mktemp)
 ss -tulpnH 2>/dev/null | awk '{print $1, $5}' | sort -u > "$CURR"
@@ -159,9 +167,10 @@ REMOVED=$(comm -23 "$STATE_FILE" "$CURR")
 [ -n "$ADDED" ] && echo "New ports: " | tee -a "$LOG_FILE" && echo "$ADDED" | tee -a "$LOG_FILE"
 [ -n "$REMOVED" ] && echo "Closed ports:" | tee -a "$LOG_FILE" && echo "$REMOVED" | tee -a "$LOG_FILE"
 [ -z "$ADDED""$REMOVED" ] && echo "Nothing changed." | tee -a "$LOG_FILE"
-
 cp "$CURR" "$STATE_FILE"
 rm -f "$CURR"
+}
+sshcheck(){
 echo "=== Checking up for strange things with SSH ==="
 sleep 1
 rm alarm.log 2>/dev/null
@@ -188,7 +197,43 @@ ip route show >> alarm.log
 arp -a >> alarm.log
 lsof -i -P -n | grep LISTEN >> alarm.log
 lsof -i -P -n | grep ESTABLISHED >> alarm.log
+}
+pkgcheck(){
+    LOG="/var/log/critical-updates.log"
+THRESHOLD=7.0 # CVSS выше этого считаем критичным
+
+# Получаем список обновляемых пакетов
+updates=$(sudo apt list --upgradable 2>/dev/null | grep -v "Listing" | cut -d/ -f1)
+
+for pkg in $updates; do
+    # Проверяем, есть ли у пакета CVE с высоким CVSS
+    cve_count=$(debsecan --suite $(lsb_release -sc) --only-fixed --package "$pkg" 2>/dev/null | \
+                grep -E "\([7-9]\.[0-9]|10\.0\)" | wc -l)
+    if [ $cve_count -gt 0 ]; then
+        critical_pkgs="$critical_pkgs\n- $pkg (исправляет $cve_count критических CVE)"
+    fi
+done
+
+if [ -n "$critical_pkgs" ]; then
+    echo -e "Критические уведомления безопасности:\n$critical_pkgs" | \
+        notify-send -u critical -t 0 "Обновления безопасности" "$(cat)"
+    echo "$(date): Найдены критические обновления: $critical_pkgs" >> $LOG
+fi
+}
+npswdcheck(){
 echo "=== Checking up for NOPASSWD-commands ==="
 sudo -l | grep NOPASSWD
-echo ""
+}
+clear
+cat eye.txt
+sleep 5
+clear
+echo "=== System Monitor Script started at $(date) ==="
+rtcheck
+zmbkiller 
+slpcron 
+nmpproc 
+ntwcheck
+pkgcheck
+npswdcheck
 echo "=== System Monitor Script finished at $(date) ==="
