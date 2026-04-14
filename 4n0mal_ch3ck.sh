@@ -237,7 +237,7 @@ run_ntwcheck=0
 run_sshcheck=0
 run_pkgcheck=0
 run_all=1
-while getopts "" opt; do
+while getopts "zcpnsu" opt; do
 	case $opt in
 		z)
 			run_all=0
@@ -267,13 +267,31 @@ while getopts "" opt; do
 	esac
 done
 if [[ $run_all -eq 1 ]]; then
-	display
+	run_zmbkiller=1
+	run_slpcron=1
+	run_nmpproc=1
+	run_ntwcheck=1
+	run_sshcheck=1
+	run_pkgcheck=1
+fi
+display
 echo "=== System Monitor Script started at $(date) ==="
-rtcheck
-zmbkiller 
-slpcron 
-nmpproc 
-ntwcheck
-pkgcheck
-npswdcheck
+if [[ $run_zmbkiller -eq 1 ]]; then 
+	zmbkiller
+fi
+if [[ $run_slpcrom -eq 1 ]]; then 
+	slpcron
+fi 
+if[[ $run_nmpproc -eq 1 ]]; then
+	nmpproc
+fi
+if [[ $run_ntwcheck -eq 1 ]]; then 
+	ntwcheck
+fi
+if [[ $run_sshcheck -eq 1 ]]; then 
+	sshcheck
+fi
+if [[ $run_pkgcheck -eq 1 ]]; then
+	pkgcheck
+fi
 echo "=== System Monitor Script finished at $(date) ==="
