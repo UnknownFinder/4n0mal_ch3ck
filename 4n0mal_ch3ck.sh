@@ -21,6 +21,7 @@ if [ "$(id -u)" != "0" ]; then
    echo "NEED ROOT LOGIN! ERROR 0x28000" >&2
    exit 1
 fi
+}
 display(){
 	cat eye.txt
 }
