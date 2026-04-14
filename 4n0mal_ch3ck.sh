@@ -16,6 +16,8 @@ if [ "$(id -u)" != "0" ]; then
    echo "NEED ROOT LOGIN! ERROR 0x28000" >&2
    exit 1
 fi
+display(){
+	cat eye.txt
 }
 zmbkiller(){
 # Поиск и обработка Zombie-процессов
@@ -264,6 +266,8 @@ while getopts "" opt; do
 			;;
 	esac
 done
+if [[ $run_all -eq 1 ]]; then
+	display
 echo "=== System Monitor Script started at $(date) ==="
 rtcheck
 zmbkiller 
