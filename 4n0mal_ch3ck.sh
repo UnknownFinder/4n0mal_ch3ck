@@ -238,8 +238,9 @@ run_nmpproc=0
 run_ntwcheck=0
 run_sshcheck=0
 run_pkgcheck=0
+run_npswdcheck=0
 run_all=1
-while getopts "zcpnsu" opt; do
+while getopts "zcpnsur" opt; do
 	case $opt in
 		z)
 			run_all=0
@@ -260,9 +261,15 @@ while getopts "zcpnsu" opt; do
 		s)
 			run_all=0
 			run_sshcheck=1
+			;;
 		u)
 			run_all=0
 			run_pkgcheck=1
+			;;
+		r)
+			run_all=0
+			run_npswdcheck=1
+			;;
 		\?)
 			echo "Unknown option! Check up the README file, mazafaka!"
 			;;
@@ -296,5 +303,8 @@ if [[ $run_sshcheck -eq 1 ]]; then
 fi
 if [[ $run_pkgcheck -eq 1 ]]; then
 	pkgcheck
+fi
+if [[ $run_npswdcheck -eq 1 ]]; then
+	npswdcheck
 fi
 echo "=== System Monitor Script finished at $(date) ==="
