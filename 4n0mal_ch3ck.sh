@@ -1,16 +1,20 @@
 #!/bin/bash
 exec 2> /dev/null
 set -euo pipefail
+mkdir -p "$STATE_DIR"
 readonly LOG_FILE="/var/log/listen_watch.log"
 readonly STATE_DIR="/var/lib/listen_watch"
 readonly STATE_FILE="$STATE_DIR/ports.txt"
-mkdir -p "$STATE_DIR"
 RED='\033[31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0,'
 readonly MAX_CRON_TIME=1800
+readonly max_cpu=80
+readonly max_rem=80
+readonly ex_cpu=95
+readonly ex_mem=95
 #modules
 rtchk(){
 if [ "$(id -u)" != "0" ]; then
@@ -89,8 +93,6 @@ lsof -i -nP | grep LISTEN | grep -Ev ':(22|80|443)' | grep -v "COMMAND"
 sleep 1
 # Поиск процессов, превышающих установленные пороги
 echo "=== Checking for high resource usage ==="
-max_cpu=80
-max_ram=80
 
 # Получаем список процессов с использованием top
 top_output=$(top -bn1)
@@ -117,8 +119,6 @@ else
 fi
 # Обработка экстремальной нагрузки
 echo "=== Checking for extreme resource usage ==="
-ex_cpu=95
-ex_mem=95
 
 ex_cpu_proc=$(echo "$top_output" | tail -n +7 | awk -v tresh="$ex_cpu" '{if ($9+0 >= tresh) print $1}' | sort -u)
 ex_mem_proc=$(echo "$top_output" | tail -n +7 | awk -v tresh="$ex_mem" '{if ($10+0 >= tresh) print $1}' | sort -u)
