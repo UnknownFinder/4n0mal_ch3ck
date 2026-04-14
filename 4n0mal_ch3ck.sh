@@ -228,6 +228,42 @@ clear
 cat eye.txt
 sleep 5
 clear
+run_zmbkiller=0
+run_slpcron=0
+run_nmpproc=0
+run_ntwcheck=0
+run_sshcheck=0
+run_pkgcheck=0
+run_all=1
+while getopts "" opt; do
+	case $opt in
+		z)
+			run_all=0
+			run_zmbkiller=1
+			;;
+		c)
+			run_all=0
+			run_slpcron=1
+			;;
+		p)
+			run_all=0
+			run_nmpproc=1
+			;;
+		n)
+			run_all=0
+			run_ntwcheck=1
+			;;
+		s)
+			run_all=0
+			run_sshcheck=1
+		u)
+			run_all=0
+			run_pkgcheck=1
+		\?)
+			echo "Unknown option! Check up the README file, mazafaka!"
+			;;
+	esac
+done
 echo "=== System Monitor Script started at $(date) ==="
 rtcheck
 zmbkiller 
