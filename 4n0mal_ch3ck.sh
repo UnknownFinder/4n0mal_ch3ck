@@ -1,15 +1,16 @@
 #!/bin/bash
 exec 2> /dev/null
 set -euo pipefail
-LOG_FILE="/var/log/listen_watch.log"
-STATE_DIR="/var/lib/listen_watch"
-STATE_FILE="$STATE_DIR/ports.txt"
+readonly LOG_FILE="/var/log/listen_watch.log"
+readonly STATE_DIR="/var/lib/listen_watch"
+readonly STATE_FILE="$STATE_DIR/ports.txt"
 mkdir -p "$STATE_DIR"
 RED='\033[31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0,'
+readonly MAX_CRON_TIME=1800
 #modules
 rtchk(){
 if [ "$(id -u)" != "0" ]; then
@@ -43,7 +44,6 @@ sleep 1
 slpcron(){
 echo "=== Checking up for frozen cron tasks ==="
 # Максимальное время выполнения задачи (в секундах)
-MAX=1800   # 30 минут
 now=$(date +%s)
 # Ищем процессы, которые запустил cron
 ps -eo pid,ppid,etimes,args --no-headers 2>/dev/null | while read -r pid ppid etimes cmd; do
@@ -53,7 +53,7 @@ ps -eo pid,ppid,etimes,args --no-headers 2>/dev/null | while read -r pid ppid et
     fi
     # Задачи cron обычно запускаются как sh -c "..."
     if echo "$cmd" | grep -q '/etc/cron\|CRON'; then
-        if (( "$etimes" > "$MAX" )); then
+        if (( "$etimes" > "$MAX_CRON_TIME" )); then
             echo "Зависшая задача: PID=$pid, работает уже ${etimes}s"
         fi
     fi
@@ -201,6 +201,7 @@ lsof -i -P -n | grep LISTEN >> alarm.log
 lsof -i -P -n | grep ESTABLISHED >> alarm.log
 }
 pkgcheck(){
+echo "=== Checking up for missed security updates ==="
     LOG="/var/log/critical-updates.log"
 THRESHOLD=7.0 # CVSS выше этого считаем критичным
 
@@ -274,6 +275,7 @@ if [[ $run_all -eq 1 ]]; then
 	run_sshcheck=1
 	run_pkgcheck=1
 fi
+rtcheck
 display
 echo "=== System Monitor Script started at $(date) ==="
 if [[ $run_zmbkiller -eq 1 ]]; then 
