@@ -46,7 +46,7 @@ else
 fi
 }
 sleep 1
-slpcron(){
+chkcron(){
 echo "=== Checking up for frozen cron tasks ==="
 # Максимальное время выполнения задачи (в секундах)
 now=$(date +%s)
@@ -233,7 +233,7 @@ cat eye.txt
 sleep 5
 clear
 run_zmbkiller=0
-run_slpcron=0
+run_chkcron=0
 run_nmpproc=0
 run_ntwcheck=0
 run_sshcheck=0
@@ -248,7 +248,7 @@ while getopts "zcpnsur" opt; do
 			;;
 		c)
 			run_all=0
-			run_slpcron=1
+			run_chkcron=1
 			;;
 		p)
 			run_all=0
@@ -277,7 +277,7 @@ while getopts "zcpnsur" opt; do
 done
 if [[ $run_all -eq 1 ]]; then
 	run_zmbkiller=1
-	run_slpcron=1
+	run_chkcron=1
 	run_nmpproc=1
 	run_ntwcheck=1
 	run_sshcheck=1
@@ -289,7 +289,7 @@ echo "=== System Monitor Script started at $(date) ==="
 if [[ $run_zmbkiller -eq 1 ]]; then 
 	zmbkiller
 fi
-if [[ $run_slpcrom -eq 1 ]]; then 
+if [[ $run_chkcrom -eq 1 ]]; then 
 	slpcron
 fi 
 if[[ $run_nmpproc -eq 1 ]]; then
