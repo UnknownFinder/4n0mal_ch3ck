@@ -9,4 +9,5 @@ P.S - update 15.04.2026. Now you can use some options like:
 -u check up for critical security updates
 -r check up for no-root login
 Just write 'your@nick~$ sudo sh 4nomal_ch3ck.sh' with flag, you can combine the flags.
+-----------------------------------------------------------------------------------------------------------------------------------------------------
 P.S - update 23.04.2026. Added extra function for finding crontasks with "bash" "curl" "wget" to avoid working payload of rootkit.
