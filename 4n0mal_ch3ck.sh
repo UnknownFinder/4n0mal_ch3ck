@@ -23,7 +23,10 @@ if [ "$(id -u)" != "0" ]; then
 fi
 }
 display(){
+	clear
 	cat eye.txt
+	sleep 5
+	clear
 }
 zmbkiller(){
 # Поиск и обработка Zombie-процессов
@@ -233,10 +236,6 @@ npswdcheck(){
 echo "=== Checking up for NOPASSWD-commands ==="
 sudo -l | grep NOPASSWD
 }
-clear
-cat eye.txt
-sleep 5
-clear
 run_zmbkiller=0
 run_chkcron=0
 run_nmpproc=0
