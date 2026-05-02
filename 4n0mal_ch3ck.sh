@@ -28,6 +28,15 @@ display(){
 	sleep 5
 	clear
 }
+show_instruction(){
+	echo"[z] - check up for zombie processes"
+	echo"[c] - check up for anomalies in cron tasks"
+	echo"[p] - check up for strange/unusual processes"
+	echo"[n] - check up for network anomalies"
+	echo"[s] - check up for strange ssh events"
+	echo"[u] - check up for critical updates"
+	echo"[r] - check up for no-root commands"
+}
 zmbkiller(){
 # Поиск и обработка Zombie-процессов
 echo "=== Checking for zombie processes ==="
@@ -289,6 +298,7 @@ if [[ $run_all -eq 1 ]]; then
 fi
 rtcheck
 display
+show_instruction
 echo "=== System Monitor Script started at $(date) ==="
 if [[ $run_zmbkiller -eq 1 ]]; then 
 	zmbkiller
