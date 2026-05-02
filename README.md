@@ -3,7 +3,7 @@ This is a first-aid-script for checking up for perhaps anomalies, like looking f
 P.S - update 15.04.2026. Now you can use some options like:
 -z check up for zombie proccesses
 -c check up for sleeping cron tasks 
--p check up for strange or unusual ports and coonections
+-p check up for strange or unusual processes 
 -n check up for network anomalies
 -s check up for ssh anomalies
 -u check up for critical security updates
