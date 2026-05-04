@@ -36,6 +36,7 @@ show_instruction(){
 	echo"[s] - check up for strange ssh events"
 	echo"[u] - check up for critical updates"
 	echo"[r] - check up for no-root commands"
+ echo"[h] - help"
 }
 zmbkiller(){
 # Поиск и обработка Zombie-процессов
@@ -252,8 +253,9 @@ run_ntwcheck=0
 run_sshcheck=0
 run_pkgcheck=0
 run_npswdcheck=0
+run_show_instructuon=0
 run_all=1
-while getopts "zcpnsur" opt; do
+while getopts "zcpnsurh" opt; do
 	case $opt in
 		z)
 			run_all=0
@@ -283,6 +285,9 @@ while getopts "zcpnsur" opt; do
 			run_all=0
 			run_npswdcheck=1
 			;;
+  h)
+   run_all=0
+   run_show_instruction=1
 		\?)
 			echo "Unknown option! Check up the README file, mazafaka!"
 			;;
@@ -298,7 +303,6 @@ if [[ $run_all -eq 1 ]]; then
 fi
 rtcheck
 display
-show_instruction
 echo "=== System Monitor Script started at $(date) ==="
 if [[ $run_zmbkiller -eq 1 ]]; then 
 	zmbkiller
@@ -320,5 +324,8 @@ if [[ $run_pkgcheck -eq 1 ]]; then
 fi
 if [[ $run_npswdcheck -eq 1 ]]; then
 	npswdcheck
+fi
+if [[ $run_show_instruction -eq 1 ]]; then
+ show_instruction
 fi
 echo "=== System Monitor Script finished at $(date) ==="
