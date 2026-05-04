@@ -36,7 +36,7 @@ show_instruction(){
 	echo"[s] - check up for strange ssh events"
 	echo"[u] - check up for critical updates"
 	echo"[r] - check up for no-root commands"
- echo"[h] - help"
+	echo"[h] - help"
 }
 zmbkiller(){
 # Поиск и обработка Zombie-процессов
@@ -285,9 +285,10 @@ while getopts "zcpnsurh" opt; do
 			run_all=0
 			run_npswdcheck=1
 			;;
-  h)
-   run_all=0
-   run_show_instruction=1
+  		h)
+   			run_all=0
+   			run_show_instruction=1
+			;;
 		\?)
 			echo "Unknown option! Check up the README file, mazafaka!"
 			;;
