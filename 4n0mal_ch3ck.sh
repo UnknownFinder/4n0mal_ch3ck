@@ -78,7 +78,7 @@ ps -eo pid,ppid,etimes,args --no-headers 2>/dev/null | while read -r pid ppid et
 done
 echo "No more tasks are frozen"
 echo "=== Checking up for anomal/unusual crontasks (perhaps rootkits) ==="
-for user in (cut -f1 -d: /etc/passwd); do
+for user in $(cut -f1 -d: /etc/passwd); do
     echo "••• $user •••"
     crontab -u $user -l 2>/dev/null | grep bash | grep curl | grep wget
 done
