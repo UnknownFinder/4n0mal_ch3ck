@@ -1,7 +1,6 @@
 #!/bin/bash
 exec 2> /dev/null
 set -euo pipefail
-mkdir -p "$STATE_DIR"
 readonly LOG_FILE="/var/log/listen_watch.log"
 readonly STATE_DIR="/var/lib/listen_watch"
 readonly STATE_FILE="$STATE_DIR/ports.txt"
@@ -9,14 +8,15 @@ RED='\033[31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0,'
+NC='\033[0m'
 readonly MAX_CRON_TIME=1800
 readonly max_cpu=80
 readonly max_rem=80
 readonly ex_cpu=95
 readonly ex_mem=95
+mkdir -p "$STATE_DIR"
 #modules
-rtchk(){
+rtcheck(){
 if [ "$(id -u)" != "0" ]; then
    echo "NEED ROOT LOGIN! ERROR 0x28000" >&2
    exit 1
@@ -308,7 +308,7 @@ echo "=== System Monitor Script started at $(date) ==="
 if [[ $run_zmbkiller -eq 1 ]]; then 
 	zmbkiller
 fi
-if [[ $run_chkcrom -eq 1 ]]; then 
+if [[ $run_chkcron -eq 1 ]]; then 
 	slpcron
 fi 
 if[[ $run_nmpproc -eq 1 ]]; then
