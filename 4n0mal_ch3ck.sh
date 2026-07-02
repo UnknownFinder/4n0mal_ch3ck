@@ -1,19 +1,19 @@
 #!/bin/bash
-exec 2> /dev/null
+#exec 2> /dev/null
 set -euo pipefail
 readonly LOG_FILE="/var/log/listen_watch.log"
 readonly STATE_DIR="/var/lib/listen_watch"
 readonly STATE_FILE="$STATE_DIR/ports.txt"
+readonly MAX_CRON_TIME=1800
+readonly max_cpu=80
+readonly max_ram=80
+readonly ex_cpu=95
+readonly ex_mem=95
 RED='\033[31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
-readonly MAX_CRON_TIME=1800
-readonly max_cpu=80
-readonly max_rem=80
-readonly ex_cpu=95
-readonly ex_mem=95
 mkdir -p "$STATE_DIR"
 #modules
 rtcheck(){
@@ -29,14 +29,14 @@ display(){
 	clear
 }
 show_instruction(){
-	echo"[z] - check up for zombie processes"
-	echo"[c] - check up for anomalies in cron tasks"
-	echo"[p] - check up for strange/unusual processes"
-	echo"[n] - check up for network anomalies"
-	echo"[s] - check up for strange ssh events"
-	echo"[u] - check up for critical updates"
-	echo"[r] - check up for no-root commands"
-	echo"[h] - help"
+	echo "[z] - check up for zombie processes"
+	echo "[c] - check up for anomalies in cron tasks"
+	echo "[p] - check up for strange/unusual processes"
+	echo "[n] - check up for network anomalies"
+	echo "[s] - check up for strange ssh events"
+	echo "[u] - check up for critical updates"
+	echo "[r] - check up for no-root commands"
+	echo "[h] - help"
 }
 zmbkiller(){
 # Поиск и обработка Zombie-процессов
@@ -80,7 +80,7 @@ echo "No more tasks are frozen"
 echo "=== Checking up for anomal/unusual crontasks (perhaps rootkits) ==="
 for user in $(cut -f1 -d: /etc/passwd); do
     echo "••• $user •••"
-    crontab -u $user -l 2>/dev/null | grep bash | grep curl | grep wget
+    crontab -u "$user" -l 2>/dev/null | grep bash | grep curl | grep wget
 done
 }
 sleep 1
@@ -123,7 +123,7 @@ if [ -n "$high_cpu_proc" ] || [ -n "$high_ram_proc" ]; then
     all_procs=$(echo "$high_cpu_proc $high_ram_proc" | tr ' ' '\n' | sort -u)
     for pid in $all_procs; do
         # Проверяем, существует ли процесс и не является ли он системным
-        if [ ps -p $pid > /dev/null 2>&1 ]; then
+        if ps -p $pid > /dev/null 2>&1; then
             # Пропускаем важные системные процессы
             if [ $pid -eq 1 ] || [ $pid -eq 2 ] || [ $pid -eq $$ ]; then
                 echo "Skipping system/self process $pid"
@@ -207,7 +207,7 @@ last -f /var/log/wtmp >> alarm.log
 last -f /var/log/btmp >> alarm.log
 crontab -l >> alarm.log
 for user in $(cat /etc/passwd | cut -d: -f1); do crontab -u $user -l >> alarm.log ; 2>/dev/null; done
-find /bin /sbin -type f -mtime -l >> alarm.log
+find /bin /sbin -type f -mtime -1 >> alarm.log
 find /root /home -name "authorized_keys" >> alarm.log 2>/dev/null
 #history
 sudo cat /root/.bash_history >> alarm.log
@@ -215,7 +215,7 @@ tail -100 /var/log/auth.log >> alarm.log
 journalctl -xe --lines=50 >> alarm.log
 route -n >> alarm.log
 ip route show >> alarm.log
-arp -a >> alarm.log
+ip neigh >> alarm.log
 lsof -i -P -n | grep LISTEN >> alarm.log
 lsof -i -P -n | grep ESTABLISHED >> alarm.log
 }
@@ -223,10 +223,8 @@ pkgcheck(){
 echo "=== Checking up for missed security updates ==="
     LOG="/var/log/critical-updates.log"
 THRESHOLD=7.0 # CVSS выше этого считаем критичным
-
 # Получаем список обновляемых пакетов
 updates=$(sudo apt list --upgradable 2>/dev/null | grep -v "Listing" | cut -d/ -f1)
-
 for pkg in $updates; do
     # Проверяем, есть ли у пакета CVE с высоким CVSS
     cve_count=$(debsecan --suite $(lsb_release -sc) --only-fixed --package "$pkg" 2>/dev/null | \
@@ -235,7 +233,6 @@ for pkg in $updates; do
         critical_pkgs="$critical_pkgs\n- $pkg (исправляет $cve_count критических CVE)"
     fi
 done
-
 if [ -n "$critical_pkgs" ]; then
     echo -e "Критические уведомления безопасности:\n$critical_pkgs" | \
         notify-send -u critical -t 0 "Обновления безопасности" "$(cat)"
@@ -327,6 +324,6 @@ if [[ $run_npswdcheck -eq 1 ]]; then
 	npswdcheck
 fi
 if [[ $run_show_instruction -eq 1 ]]; then
- show_instruction
+	show_instruction
 fi
 echo "=== System Monitor Script finished at $(date) ==="
