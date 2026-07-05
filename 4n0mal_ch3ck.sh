@@ -15,8 +15,9 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
-
 mkdir -p "$STATE_DIR"
+# ==================== Requirements ====================
+required_tools=("top", "ps", "grep", "lsof", "ss", "netstat", "debsecan", "ip", "route")
 # ==================== Initialization of functions ====================
 rtcheck() {
     if [ "$(id -u)" != "0" ]; then
