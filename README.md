@@ -1,1 +1,2 @@
 This is a first-aid script for checking up for perhaps anomalies, like looking for zombie-processes, frozen cron tasks, unusual processes, ssh anomalies, critical updates and other. You can just run script like 'your@nick~$ sudo sh 4nomal_ch3ck.sh [flags]' You can use and combine flags to get information that you need. To get info about flags run sh 4nomal_ch3ck.sh -h. 
+[!] Please,check that you're installing last patched version.
