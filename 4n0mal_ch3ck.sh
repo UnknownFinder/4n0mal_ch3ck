@@ -18,6 +18,12 @@ NC='\033[0m'
 mkdir -p "$STATE_DIR"
 # ==================== Requirements ====================
 required_tools=("top", "ps", "grep", "lsof", "ss", "netstat", "debsecan", "ip", "route")
+for cmd in ${required_tools[@]}; do
+    if ! command -v "$cmd" &> /dev/null; then
+        echo "Error: $cmd os not installed"
+        exit 1
+    fi
+done
 # ==================== Initialization of functions ====================
 rtcheck() {
     if [ "$(id -u)" != "0" ]; then
