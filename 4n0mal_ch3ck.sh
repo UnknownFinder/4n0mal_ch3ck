@@ -15,12 +15,23 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
-
 mkdir -p "$STATE_DIR"
+# ==================== Network Audit variebles ====================
+SNMP_COMMUNITY="${SNMP_COMMUNITY:-public}"
+NETWORK_SUBNET="${NETWORK_SUBNET:-192.168.1.0/24}" #[!] CHANGE IF YOU HAVE ANOTHER
+TRUSTED_HOSTS_FILE="${TRUSTED_HOSTS_FILE:-/etc/trusted_hosts}"
+# ==================== Requirements ====================
+required_tools=("top", "ps", "grep", "lsof", "ss", "netstat", "debsecan", "ip", "route", "nmap", "arp-scan", "snmpget")
+for cmd in ${required_tools[@]}; do
+    if ! command -v "$cmd" &> /dev/null; then
+        echo -e "${RED} Error: $cmd os not installed"
+        exit 1
+    fi
+done
 # ==================== Initialization of functions ====================
 rtcheck() {
     if [ "$(id -u)" != "0" ]; then
-        echo "NEED ROOT LOGIN! ERROR 0x28000" >&2
+        echo -e "${RED} NEED ROOT LOGIN! ERROR 0x28000" >&2
         exit 1
     fi
 }
@@ -59,7 +70,7 @@ zmbkiller() {
             fi
         done
     else
-        echo "No zombie processes found."
+        echo -e "${GREEN} No zombie processes found."
     fi
 }
 chkcron() {
@@ -98,7 +109,7 @@ chkcron() {
     done < <(ps -eo pid,ppid,etime,args --no-headers 2>/dev/null)
 
     if [ $found -eq 0 ]; then
-        echo "No frozen cron tasks found."
+        echo -e "${GREEN} No frozen cron tasks found."
     fi
 
     echo "=== Checking up for anomalous/unusual crontasks (perhaps rootkits) ==="
@@ -299,9 +310,82 @@ pkgcheck() {
 
 npswdcheck() {
     echo "=== Checking up for NOPASSWD-commands ==="
-    sudo -l 2>/dev/null | grep NOPASSWD || echo "No NOPASSWD entries found."
+    sudo -l 2>/dev/null | grep NOPASSWD || echo -e "${GREEN} No NOPASSWD entries found."
+}
+discover_hosts(){
+    local subnet="${1:-$NETWORK_SUBNET}"
+    local tmp_file="/tmp/hosts_$$.txt"
+    rm -f "$tmp_file"
+    echo -e "${BLUE} Scanning network for alive hosts:"
+    nmap -sn "$subnet" -oG - 2>/dev/null | awk '/Up$/{print $2}' >> "$tmp_file"
+    arp-scan --local --quiet 2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+' | awk '{print &1}' >> "$tmp_file"
+    sort -u "$tmp_file" -o "$tmp_file"
+    sed -i '/^$/d' "$tmp_file"
+    cat "$tmp_file"
+    rm -f "$tmp_file"
 }
 
+snmp_get_inf0(){
+    local ip=$1
+    local community="${SNSMP_COMMUNITY:-public}"
+    local sysdesc=""
+    local hostname=""
+    local uptime_human="N/A"
+    # Getting system description
+    sysdesc=$(snmpget -v2c -c "$community" -t 2 "$ip" 1.3.6.1.2.1.1.1.0 2>/dev/null | cut -d= -f2-  | xargs)
+    # Hostname
+    hostname=$(snmpget -v2c -c "$community" -t 2 "$ip" 1.3.6.1.2.1.1.1.0 2>/dev/null | cut -d= -f2- | xargs)
+    # Uptime
+    uptime_raw=$(snmpget -v2c -c "$community" -t 2 "$ip" 1.3.6.1.2.1.1.1.0 2>/dev/null | awk '{print $NF}')
+    if [[ -n $"uptime_raw" && "$uptime_raw" =~ ^[0-9]+$ ]]; then
+        uptime_sec=$((uptime_raw / 100))
+        uptime_human=$(printf "%d days, %02d:%02d:%02d" $((uptime_sec/86400)) $(( (uptime_sec/86400)/3600 )) $(( (uptime_sec%3600)/60 )) $((uptime_sec%60)) )
+    fi
+    echo "IP: $ip | Hostname: ${hostname:-N/A} | Uptime $uptime_human| OS: ${sysdesc:-N/A}"
+}
+
+# Check-up legal/illegal host
+check_illegal(){
+    local ip="$1"
+    local mac="$1"
+    local hostname="$3"
+    # If white-list does not exists
+    if [ ! -f "$TRUSTED_HOSTS_FILE" ]; then
+        echo -e "${RED} White-list of hosts does not exists."
+        return 0
+    fi
+    if grep -qi -E "^$ip$|^$mac$|^$hostname$" "$TRUSTED_HOSTS_FILE" 2>/dev/null; then
+        return 0
+    else 
+        return 1
+    fi
+}
+
+# Main network audit function
+ntwaudit(){
+    echo "=== Searching illegal hosts" | tee -a "$LOG_FILE"
+    local hosts_file="/tmp/live_hosts_$$.txt"
+    local illigal_log="/var/log/illegal_hosts.log"
+
+    # Making white-list of hosts
+    if [ ! -f "$TRUSTED_HOSTS_FILE" ]; then
+        echo "Making empty file of trusted hosts $TRUSTED_HOSTS_FILE. Add trusted hosts (IP, MAC, hostname) there, one per line." | tee -a "$LOG_GILE"
+        touch "$TRUSTED_HOSTS_FILE"
+    fi
+
+    # Getting list of alive hosts
+    discover_hosts "$NETWORK_SUBNET" > "$hosts_file"
+    local total_hosts=$(wc -l < "$hosts_file")
+    echo "Found alive hosts: $total_hosts" | tee -a "$LOG_FILE"
+    if [ "$total_hosts" -eq 0 ]; then
+        echo "No alive hosts :("
+        rm -f "$hosts_file"
+        return 0
+    fi
+
+    local illegal_found=0
+    while read -r ip; do
+        mac=$(ip neigh show "$ip" 2>/dev/null)
 # ==================== Main code ====================
 
 run_zmbkiller=0
@@ -324,7 +408,7 @@ while getopts "zcpnsurh" opt; do
         u) run_all=0; run_pkgcheck=1 ;;
         r) run_all=0; run_npswdcheck=1 ;;
         h) run_all=0; run_show_instruction=1 ;;
-        \?) echo "Unknown option! Check the README file, mazafaka!" >&2; exit 1 ;;
+        \?) echo -e "{$RED} Unknown option! Check the README file, mazafaka!" >&2; exit 1 ;;
     esac
 done
 
