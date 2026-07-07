@@ -366,13 +366,11 @@ ntwaudit(){
     echo "=== Searching illegal hosts" | tee -a "$LOG_FILE"
     local hosts_file="/tmp/live_hosts_$$.txt"
     local illigal_log="/var/log/illegal_hosts.log"
-
     # Making white-list of hosts
     if [ ! -f "$TRUSTED_HOSTS_FILE" ]; then
         echo "Making empty file of trusted hosts $TRUSTED_HOSTS_FILE. Add trusted hosts (IP, MAC, hostname) there, one per line." | tee -a "$LOG_GILE"
         touch "$TRUSTED_HOSTS_FILE"
     fi
-
     # Getting list of alive hosts
     discover_hosts "$NETWORK_SUBNET" > "$hosts_file"
     local total_hosts=$(wc -l < "$hosts_file")
@@ -382,10 +380,34 @@ ntwaudit(){
         rm -f "$hosts_file"
         return 0
     fi
-
     local illegal_found=0
     while read -r ip; do
         mac=$(ip neigh show "$ip" 2>/dev/null)
+        snmp_info=$(snmp_get_info "$ip")
+        hostname=$(echo "$snmp_info" | grep -oP 'Hostname: \K[^ ]+' | head -1)
+        if [[ -z "$hostname" ]]; then
+            hostname="unknown"
+        fi
+        if check_illegal "$ip" "$mac" "$hostname"; then
+            echo "$ip ($hostname) - LEGAL"
+        else
+            echo "$ip ($hostname) - ILLEGAL"
+            illegal_found=1
+            echo "Getting info from $ip" | tee -a "$LOG_FILE"
+            snmpwalk -v2c -c "$SNMP_COMMUNITY" "$ip" 1.3.6.1.2.1.25.4.2.1.2 > "/tmp/snmp_procs_${ip}.txt" 2>/dev/null
+            echo " Getting info about users with ip-address $ip" | tee -a "$LOG_FILE"
+            snmpwalk -v2c -c "$SNMP_COMMUNITY" "$ip" 1.3.6.1.4.1.2021.8 > "/tmp/snmp_users_${ip}.txt" 2>/dev/null
+            echo "Saved in /tmp/snmp_*_$ip.txt" | tee -a "$LOG_FILE"
+        fi
+    done < "$hosts_file"
+    rm -f "$hosts_file"
+    if [ "$illegal_found" -eq 0 ]; then
+        echo "No illegal hosts" | tee -a "$LOG_FILE"
+    else
+        echo "[!] Founded illegal hosts! Check up the logs: $illegal_log" | tee -a "$LOG_FILE"
+    fi
+}
+
 # ==================== Main code ====================
 
 run_zmbkiller=0
@@ -395,10 +417,11 @@ run_ntwcheck=0
 run_sshcheck=0
 run_pkgcheck=0
 run_npswdcheck=0
+run_ntwaudit=0
 run_show_instruction=0
 run_all=1
 
-while getopts "zcpnsurh" opt; do
+while getopts "zcpnsurha" opt; do
     case $opt in
         z) run_all=0; run_zmbkiller=1 ;;
         c) run_all=0; run_chkcron=1 ;;
@@ -407,6 +430,7 @@ while getopts "zcpnsurh" opt; do
         s) run_all=0; run_sshcheck=1 ;;
         u) run_all=0; run_pkgcheck=1 ;;
         r) run_all=0; run_npswdcheck=1 ;;
+        a) run_all=0; run_ntwaudit=1 ;;
         h) run_all=0; run_show_instruction=1 ;;
         \?) echo -e "{$RED} Unknown option! Check the README file, mazafaka!" >&2; exit 1 ;;
     esac
@@ -419,6 +443,8 @@ if [ $run_all -eq 1 ]; then
     run_ntwcheck=1
     run_sshcheck=1
     run_pkgcheck=1
+    run_npswdcheck=1
+    run_ntwaudit=1
 fi
 
 rtcheck
@@ -432,6 +458,7 @@ echo "=== System Monitor Script started at $(date) ==="
 [ $run_sshcheck -eq 1 ] && sshcheck
 [ $run_pkgcheck -eq 1 ] && pkgcheck
 [ $run_npswdcheck -eq 1 ] && npswdcheck
+[ $run_ntwaudit -eq 1 ] && ntwaudit
 [ $run_show_instruction -eq 1 ] && show_instruction
 
 echo "=== System Monitor Script finished at $(date) ==="
