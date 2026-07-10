@@ -11,9 +11,13 @@ readonly max_ram=80
 readonly ex_cpu=95
 readonly ex_mem=95
 RED='\033[31m'
-GREEN='\033[0;32m'
+ORANGE='\033[38;5;208m'
 YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
+GREEN='\033[0;32m'
+CYAN='\033[1;36m'
+BLUE='\033[1;34m'
+PURPLE='\033[1;35m'
+WHITE='033\[1;37m'
 NC='\033[0m'
 mkdir -p "$STATE_DIR"
 # ==================== Network Audit variebles ====================
