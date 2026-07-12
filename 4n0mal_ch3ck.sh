@@ -28,14 +28,14 @@ TRUSTED_HOSTS_FILE="${TRUSTED_HOSTS_FILE:-/etc/trusted_hosts}"
 required_tools=("top", "ps", "grep", "lsof", "ss", "netstat", "debsecan", "ip", "route", "nmap", "arp-scan", "snmpget")
 for cmd in ${required_tools[@]}; do
     if ! command -v "$cmd" &> /dev/null; then
-        echo -e "${RED} Error: $cmd os not installed"
+        echo -e "${RED} Error: $cmd os not installed ${NC}"
         exit 1
     fi
 done
 # ==================== Initialization of functions ====================
 rtcheck() {
     if [ "$(id -u)" != "0" ]; then
-        echo -e "${RED} NEED ROOT LOGIN! ERROR 0x28000" >&2
+        echo -e "${RED} NEED ROOT LOGIN! ERROR 0x28000" ${NC} >&2
         exit 1
     fi
 }
@@ -44,20 +44,20 @@ display() {
     if [ -f "eye.txt" ]; then
         cat eye.txt
     else
-        echo "Eye file not found, skipping."
+        echo -e "${ORANGE} Eye file not found, skipping. ${NC}"
     fi
     sleep 5
     clear
 }
 show_instruction() {
-    echo "[z] - check up for zombie processes"
-    echo "[c] - check up for anomalies in cron tasks"
-    echo "[p] - check up for strange/unusual processes"
-    echo "[n] - check up for network anomalies"
-    echo "[s] - check up for strange ssh events"
-    echo "[u] - check up for critical updates"
-    echo "[r] - check up for no-root commands"
-    echo "[h] - help"
+    echo -e "${WHITE} [z] - check up for zombie processes ${NC}"
+    echo -e "${WBITE} [c] - check up for anomalies in cron tasks ${NC}"
+    echo -e "${WHITE} [p] - check up for strange/unusual processes ${NC}"
+    echo -e "${WHITE} [n] - check up for network anomalies ${NC}"
+    echo -e "${WHITE} [s] - check up for strange ssh events ${NC}"
+    echo -e "${WHITE} [u] - check up for critical updates ${NC}"
+    echo -e "${WHITE} [r] - check up for no-root commands ${NC}"
+    echo -e "${WHITE} [h] - help ${NC}"
 }
 zmbkiller() {
     echo "=== Checking for zombie processes ==="
@@ -67,14 +67,14 @@ zmbkiller() {
         for zombie in $zombies; do
             parent_pid=$(ps -o ppid= -p "$zombie" 2>/dev/null | tr -d ' ')
             if [ -n "$parent_pid" ] && [ "$parent_pid" -ne 1 ]; then
-                echo "Killing parent process $parent_pid of zombie $zombie"
+                echo -e "${YELLOW} Killing parent process $parent_pid of zombie $zombie ${NC}"
                 kill -9 "$parent_pid" 2>/dev/null
             else
-                echo "Cannot kill zombie $zombie (parent is init or not found)"
+                echo -e "${RED} Cannot kill zombie $zombie (parent is init or not found) ${NC}"
             fi
         done
     else
-        echo -e "${GREEN} No zombie processes found."
+        echo -e "${GREEN} No zombie processes found. ${NC}"
     fi
 }
 chkcron() {
@@ -106,14 +106,14 @@ chkcron() {
                 total="${BASH_REMATCH[1]}"
             fi
             if (( total > MAX_CRON_TIME )); then
-                echo "Зависшая задача: PID=$pid, работает уже ${total}s"
+                echo -e "${YELLOW} Зависшая задача: PID=$pid, работает уже ${total}s ${NC}"
                 found=1
             fi
         fi
     done < <(ps -eo pid,ppid,etime,args --no-headers 2>/dev/null)
 
     if [ $found -eq 0 ]; then
-        echo -e "${GREEN} No frozen cron tasks found."
+        echo -e "${GREEN} No frozen cron tasks found. ${NC}"
     fi
 
     echo "=== Checking up for anomalous/unusual crontasks (perhaps rootkits) ==="
@@ -130,7 +130,7 @@ nmpproc() {
     proc_pids=$(ls /proc/ | grep -E '^[0-9]+$' | sort -n)
     hidden_pids=$(comm -23 <(echo "$proc_pids") <(echo "$ps_pids"))
     if [ -n "$hidden_pids" ]; then
-        echo "Strange hidden PIDS:"
+        echo -e "${RED} Strange hidden PIDS: ${NC}"
         for pid in $hidden_pids; do
             if [ -d "/proc/$pid" ]; then
                 ls -l "/proc/$pid/exe" 2>/dev/null || true
@@ -150,7 +150,7 @@ nmpproc() {
     if command -v lsof >/dev/null; then
         lsof -i -nP | grep LISTEN | grep -Ev ':(22|80|443)' | grep -v "COMMAND" || true
     else
-        echo "lsof not installed, skipping."
+        echo -e "${YELLOW} lsof not installed, skipping. ${NC}"
     fi
 
     echo "=== Checking for high resource usage ==="
@@ -163,15 +163,15 @@ nmpproc() {
         for pid in $all_procs; do
             if ps -p "$pid" >/dev/null 2>&1; then
                 if [ "$pid" -eq 1 ] || [ "$pid" -eq 2 ] || [ "$pid" -eq $$ ]; then
-                    echo "Skipping system/self process $pid"
+                    echo -e "${YELLOW} Skipping system/self process $pid ${NC}"
                     continue
                 fi
-                echo "Changing priority for process $pid"
-                renice 15 -p "$pid" 2>/dev/null || echo "Failed to renice process $pid"
+                echo -e "${YELLOW} Changing priority for process $pid ${NC}"
+                renice 15 -p "$pid" 2>/dev/null || echo -e "${RED} Failed to renice process $pid ${NC}"
             fi
         done
     else
-        echo "Overloading is not detected."
+        echo -e "${GREEN} Overloading is not detected. ${NC}"
     fi
 
     echo "=== Checking for extreme resource usage ==="
@@ -179,7 +179,7 @@ nmpproc() {
     ex_mem_proc=$(ps -eo pid,pmem,comm --no-headers | awk -v tresh="$ex_mem" '$2+0 >= tresh {print $1}')
 
     if [ -n "$ex_cpu_proc" ] || [ -n "$ex_mem_proc" ]; then
-        echo "Warning! Extremely high load!"
+        echo -e "${RED} Warning! Extremely high load! ${NC}"
         all_ex_procs=$(echo "$ex_cpu_proc $ex_mem_proc" | tr ' ' '\n' | sort -u)
         for pid in $all_ex_procs; do
             if ps -p "$pid" >/dev/null 2>&1; then
@@ -197,7 +197,7 @@ nmpproc() {
             fi
         done
     else
-        echo "No extreme load detected."
+        echo -e "${GREEN} No extreme load detected. ${NC}"
     fi
 }
 ntwcheck() {
@@ -406,9 +406,9 @@ ntwaudit(){
     done < "$hosts_file"
     rm -f "$hosts_file"
     if [ "$illegal_found" -eq 0 ]; then
-        echo "No illegal hosts" | tee -a "$LOG_FILE"
+        echo -e "${GREEN} No illegal hosts ${NC}" | tee -a "$LOG_FILE"
     else
-        echo "[!] Founded illegal hosts! Check up the logs: $illegal_log" | tee -a "$LOG_FILE"
+        echo -e "${RED} [!] Founded illegal hosts! Check up the logs: $illegal_log $NC}" | tee -a "$LOG_FILE"
     fi
 }
 
@@ -436,7 +436,7 @@ while getopts "zcpnsurha" opt; do
         r) run_all=0; run_npswdcheck=1 ;;
         a) run_all=0; run_ntwaudit=1 ;;
         h) run_all=0; run_show_instruction=1 ;;
-        \?) echo -e "{$RED} Unknown option! Check the README file, mazafaka!" >&2; exit 1 ;;
+        \?) echo -e "{$RED} Unknown option! Check the README file, mazafaka! ${NC}" >&2; exit 1 ;;
     esac
 done
 
