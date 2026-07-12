@@ -60,7 +60,7 @@ show_instruction() {
     echo -e "${WHITE} [h] - help ${NC}"
 }
 zmbkiller() {
-    echo "=== Checking for zombie processes ==="
+    echo -e "${WHITE} === Checking for zombie processes === ${NC}"
     zombies=$(ps aux | awk '$8 ~ /^[Zz]/ {print $2}')
     if [ -n "$zombies" ]; then
         echo "Zombie processes found: $zombies"
@@ -78,7 +78,7 @@ zmbkiller() {
     fi
 }
 chkcron() {
-    echo "=== Checking up for frozen cron tasks ==="
+    echo -e "${WHITE} === Checking up for frozen cron tasks === ${NC}"
     found=0
     while read -r pid ppid etime cmd; do
         total=0
@@ -116,16 +116,16 @@ chkcron() {
         echo -e "${GREEN} No frozen cron tasks found. ${NC}"
     fi
 
-    echo "=== Checking up for anomalous/unusual crontasks (perhaps rootkits) ==="
+    echo -e "${WHITE} === Checking up for anomalous/unusual crontasks (perhaps rootkits) === ${NC}"
     for user in $(cut -f1 -d: /etc/passwd); do
         echo "••• $user •••"
         crontab -u "$user" -l 2>/dev/null | grep -E 'bash.*curl|bash.*wget' || true
     done
 }
 nmpproc() {
-    echo "=== Searching anomaly processes ==="
+    echo -e "${WHITE} === Searching anomaly processes === ${NC}"
     sleep 2
-    echo "Comparing /proc and ps outputs"
+    echo -e "${WHITE} Comparing /proc and ps outputs ${NC}"
     ps_pids=$(ps -e -o pid= | sort -n)
     proc_pids=$(ls /proc/ | grep -E '^[0-9]+$' | sort -n)
     hidden_pids=$(comm -23 <(echo "$proc_pids") <(echo "$ps_pids"))
@@ -140,20 +140,20 @@ nmpproc() {
         done
     fi
 
-    echo "Processes of temporary directories:"
+    echo -e "${WHITE} Processes of temporary directories: ${NC}"
     ps axeo pid,comm,args | grep -E '/(tmp|dev|run)/' | grep -v grep || true
 
-    echo "Unnamed processes:"
+    echo -e "${WHITE} Unnamed processes: ${NC}"
     ps axeo pid,comm | awk '$2 == "[]" || $2 == ""' || true
 
-    echo "Non-typical incoming connections:"
+    echo -e "${WHITE} Non-typical incoming connections: ${NC}"
     if command -v lsof >/dev/null; then
         lsof -i -nP | grep LISTEN | grep -Ev ':(22|80|443)' | grep -v "COMMAND" || true
     else
         echo -e "${YELLOW} lsof not installed, skipping. ${NC}"
     fi
 
-    echo "=== Checking for high resource usage ==="
+    echo -e "${WHITE} === Checking for high resource usage === ${NC} "
     high_cpu_proc=$(ps -eo pid,pcpu,comm --no-headers | awk -v tresh="$max_cpu" '$2+0 >= tresh {print $1}')
     high_ram_proc=$(ps -eo pid,pmem,comm --no-headers | awk -v tresh="$max_ram" '$2+0 >= tresh {print $1}')
 
@@ -174,7 +174,7 @@ nmpproc() {
         echo -e "${GREEN} Overloading is not detected. ${NC}"
     fi
 
-    echo "=== Checking for extreme resource usage ==="
+    echo -e "${WHITE} === Checking for extreme resource usage === ${NC}"
     ex_cpu_proc=$(ps -eo pid,pcpu,comm --no-headers | awk -v tresh="$ex_cpu" '$2+0 >= tresh {print $1}')
     ex_mem_proc=$(ps -eo pid,pmem,comm --no-headers | awk -v tresh="$ex_mem" '$2+0 >= tresh {print $1}')
 
@@ -184,7 +184,7 @@ nmpproc() {
         for pid in $all_ex_procs; do
             if ps -p "$pid" >/dev/null 2>&1; then
                 if [ "$pid" -eq 1 ] || [ "$pid" -eq 2 ] || [ "$pid" -eq $$ ]; then
-                    echo "Skipping system/self process $pid"
+                    echo -e "${YELLOW} Skipping system/self process $pid ${NC}"
                     continue
                 fi
                 echo "Terminating process $pid"
@@ -201,12 +201,12 @@ nmpproc() {
     fi
 }
 ntwcheck() {
-    echo "=== Checking up listening ports ===" | tee -a "$LOG_FILE"
+    echo -e "${WHITE} === Checking up listening ports === ${NC}" | tee -a "$LOG_FILE"
     CURR=$(mktemp)
     ss -tulpn 2>/dev/null | awk 'NR>1 {print $1, $5}' | sort -u > "$CURR"
     if [ ! -f "$STATE_FILE" ]; then
         cp "$CURR" "$STATE_FILE"
-        echo "Base of listening ports is created." | tee -a "$LOG_FILE"
+        echo -e "${BLUE} Base of listening ports is created. ${NC}" | tee -a "$LOG_FILE"
         rm -f "$CURR"
         return 0
     fi
@@ -355,7 +355,7 @@ check_illegal(){
     local hostname="$3"
     # If white-list does not exists
     if [ ! -f "$TRUSTED_HOSTS_FILE" ]; then
-        echo -e "${RED} White-list of hosts does not exists."
+        echo -e "${RED} White-list of hosts does not exists. ${NC}"
         return 0
     fi
     if grep -qi -E "^$ip$|^$mac$|^$hostname$" "$TRUSTED_HOSTS_FILE" 2>/dev/null; then
@@ -367,7 +367,7 @@ check_illegal(){
 
 # Main network audit function
 ntwaudit(){
-    echo "=== Searching illegal hosts" | tee -a "$LOG_FILE"
+    echo -e "${WHITE} === Searching illegal hosts === ${NC}" | tee -a "$LOG_FILE"
     local hosts_file="/tmp/live_hosts_$$.txt"
     local illigal_log="/var/log/illegal_hosts.log"
     # Making white-list of hosts
@@ -453,7 +453,7 @@ fi
 
 rtcheck
 display
-echo "=== System Monitor Script started at $(date) ==="
+echo -e "${WHITE} === System Monitor Script started at $(date) === ${NC}"
 
 [ $run_zmbkiller -eq 1 ] && zmbkiller
 [ $run_chkcron -eq 1 ] && chkcron
@@ -465,4 +465,4 @@ echo "=== System Monitor Script started at $(date) ==="
 [ $run_ntwaudit -eq 1 ] && ntwaudit
 [ $run_show_instruction -eq 1 ] && show_instruction
 
-echo "=== System Monitor Script finished at $(date) ==="
+echo "${WHITE} === System Monitor Script finished at $(date) === ${NC}"
