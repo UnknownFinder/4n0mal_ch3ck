@@ -187,11 +187,11 @@ nmpproc() {
                     echo -e "${YELLOW} Skipping system/self process $pid ${NC}"
                     continue
                 fi
-                echo "Terminating process $pid"
+                echo -e "${YELLOW} Terminating process $pid ${NC}"
                 kill -15 "$pid" 2>/dev/null
                 sleep 2
                 if ps -p "$pid" >/dev/null 2>&1; then
-                    echo "Force killing process $pid"
+                    echo -e "${ORANGE} Force killing process $pid ${NC}"
                     kill -9 "$pid" 2>/dev/null
                 fi
             fi
@@ -223,7 +223,7 @@ ntwcheck() {
 }
 
 sshcheck() {
-    echo "=== Checking up for strange things with SSH ==="
+    echo -e "${WHITE} === Checking up for strange things with SSH === ${NC}"
     sleep 1
 
     local ALARM_LOG="/var/log/alarm_$(date +%Y%m%d_%H%M%S).log"
