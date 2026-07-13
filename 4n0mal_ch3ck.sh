@@ -118,7 +118,7 @@ chkcron() {
 
     echo -e "${WHITE} === Checking up for anomalous/unusual crontasks (perhaps rootkits) === ${NC}"
     for user in $(cut -f1 -d: /etc/passwd); do
-        echo "••• $user •••"
+        echo "${CYAN} ••• $user ••• ${NC}"
         crontab -u "$user" -l 2>/dev/null | grep -E 'bash.*curl|bash.*wget' || true
     done
 }
@@ -130,7 +130,7 @@ nmpproc() {
     proc_pids=$(ls /proc/ | grep -E '^[0-9]+$' | sort -n)
     hidden_pids=$(comm -23 <(echo "$proc_pids") <(echo "$ps_pids"))
     if [ -n "$hidden_pids" ]; then
-        echo -e "${RED} Strange hidden PIDS: ${NC}"
+        echo -e "${ORANGE} Strange hidden PIDS: ${NC}"
         for pid in $hidden_pids; do
             if [ -d "/proc/$pid" ]; then
                 ls -l "/proc/$pid/exe" 2>/dev/null || true
@@ -158,7 +158,7 @@ nmpproc() {
     high_ram_proc=$(ps -eo pid,pmem,comm --no-headers | awk -v tresh="$max_ram" '$2+0 >= tresh {print $1}')
 
     if [ -n "$high_cpu_proc" ] || [ -n "$high_ram_proc" ]; then
-        echo "Warning! Overloading is detected."
+        echo -e "${ORANGFE} Warning! Overloading is detected. ${NC}"
         all_procs=$(echo "$high_cpu_proc $high_ram_proc" | tr ' ' '\n' | sort -u)
         for pid in $all_procs; do
             if ps -p "$pid" >/dev/null 2>&1; then
