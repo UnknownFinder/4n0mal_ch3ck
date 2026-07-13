@@ -35,7 +35,7 @@ done
 # ==================== Initialization of functions ====================
 rtcheck() {
     if [ "$(id -u)" != "0" ]; then
-        echo -e "${RED} NEED ROOT LOGIN! ERROR 0x28000" ${NC} >&2
+        echo -e "${RED} NEED ROOT LOGIN! ERROR 0x28000 ${NC}" >&2
         exit 1
     fi
 }
@@ -63,7 +63,7 @@ zmbkiller() {
     echo -e "${WHITE} === Checking for zombie processes === ${NC}"
     zombies=$(ps aux | awk '$8 ~ /^[Zz]/ {print $2}')
     if [ -n "$zombies" ]; then
-        echo "Zombie processes found: $zombies"
+        echo " ${YELLOW} Zombie processes found: $zombies"
         for zombie in $zombies; do
             parent_pid=$(ps -o ppid= -p "$zombie" 2>/dev/null | tr -d ' ')
             if [ -n "$parent_pid" ] && [ "$parent_pid" -ne 1 ]; then
