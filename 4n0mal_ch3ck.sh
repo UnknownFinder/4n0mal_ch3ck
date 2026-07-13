@@ -229,66 +229,66 @@ sshcheck() {
     local ALARM_LOG="/var/log/alarm_$(date +%Y%m%d_%H%M%S).log"
     {
         date
-        timedatectl 2>/dev/null || echo "timedatectl not available"
-        echo "--- w ---"
+        timedatectl 2>/dev/null || echo -e "${RED} timedatectl not available ${NC}"
+        echo -e "${WHITE} --- w --- ${NC}"
         w
-        echo "--- who ---"
+        echo -e "${WHITE} --- who --- ${NC}"
         who
-        echo "--- ps auxww ---"
+        echo -e "${WHITE} --- ps auxww --- ${NC}"
         ps auxww
-        echo "--- netstat -tulpn ---"
-        if command -v netstat >/dev/null; then netstat -tulpn 2>/dev/null; else echo "netstat not installed"; fi
-        echo "--- ss -tulpn ---"
-        if command -v ss >/dev/null; then ss -tulpn 2>/dev/null; else echo "ss not installed"; fi
-        echo "--- netstat -an | grep ESTABLISHED ---"
+        echo -e "${WHITE} --- netstat -tulpn --- ${NC}"
+        if command -v netstat >/dev/null; then netstat -tulpn 2>/dev/null; else echo -e "${RED} netstat not installed ${NC}"; fi
+        echo -e "${WHITE} --- ss -tulpn --- ${NC}"
+        if command -v ss >/dev/null; then ss -tulpn 2>/dev/null; else echo "${RED} ss not installed ${NC}"; fi
+        echo -e "${WHITE} --- netstat -an | grep ESTABLISHED --- ${NC}"
         if command -v netstat >/dev/null; then netstat -an 2>/dev/null | grep ESTABLISHED || true; fi
-        echo "--- /etc/passwd ---"
+        echo -e "${WHITE} --- /etc/passwd --- ${NC}"
         cat /etc/passwd
-        echo "--- lastlog ---"
+        echo -e "${WHITE} --- lastlog --- ${NC}"
         lastlog
-        echo "--- last -f /var/log/wtmp ---"
+        echo -e "${WHITE} --- last -f /var/log/wtmp --- ${NC}"
         last -f /var/log/wtmp 2>/dev/null || true
-        echo "--- last -f /var/log/btmp ---"
+        echo -e "${WHITE} --- last -f /var/log/btmp --- ${NC}"
         last -f /var/log/btmp 2>/dev/null || true
-        echo "--- crontab -l (root) ---"
+        echo -e "${WHITE} --- crontab -l (root) --- ${NC}"
         crontab -l 2>/dev/null || true
         for user in $(cut -f1 -d: /etc/passwd); do
-            echo "--- crontab for $user ---"
+            echo -e "${WHITE} --- crontab for $user --- ${NC}"
             crontab -u "$user" -l 2>/dev/null || true
         done
-        echo "--- find /bin /sbin -type f -mtime -1 ---"
+        echo -e "${WHITE} --- find /bin /sbin -type f -mtime -1 --- ${NC}"
         find /bin /sbin -type f -mtime -1 2>/dev/null || true
-        echo "--- find authorized_keys ---"
+        echo -e "${WHITE} --- find authorized_keys --- ${NC}"
         find /root /home -name "authorized_keys" 2>/dev/null || true
-        echo "--- /root/.bash_history ---"
+        echo -e "${WHITE} --- /root/.bash_history --- ${NC}"
         cat /root/.bash_history 2>/dev/null || true
-        echo "--- tail -100 /var/log/auth.log ---"
+        echo -e "${WHITE} --- tail -100 /var/log/auth.log ---"
         tail -100 /var/log/auth.log 2>/dev/null || true
-        echo "--- journalctl --lines=50 ---"
+        echo -e "${WHITE} --- journalctl --lines=50 --- ${NC}"
         journalctl -xe --lines=50 2>/dev/null || true
-        echo "--- route -n ---"
+        echo -e "${WHITE} --- route -n --- ${NC}"
         if command -v route >/dev/null; then route -n 2>/dev/null; else echo "route not installed"; fi
-        echo "--- ip route show ---"
+        echo -e "${WHITE} --- ip route show --- ${NC}"
         if command -v ip >/dev/null; then ip route show 2>/dev/null; else echo "ip not installed"; fi
-        echo "--- ip neigh ---"
+        echo -e "${WHITE} --- ip neigh --- ${NC}"
         if command -v ip >/dev/null; then ip neigh 2>/dev/null; else echo "ip not installed"; fi
-        echo "--- lsof -i -P -n | grep LISTEN ---"
+        echo -e "${WHITE} --- lsof -i -P -n | grep LISTEN --- ${NC}"
         if command -v lsof >/dev/null; then lsof -i -P -n 2>/dev/null | grep LISTEN || true; fi
-        echo "--- lsof -i -P -n | grep ESTABLISHED ---"
+        echo -e "${WHITE} --- lsof -i -P -n | grep ESTABLISHED --- ${NC}"
         if command -v lsof >/dev/null; then lsof -i -P -n 2>/dev/null | grep ESTABLISHED || true; fi
     } > "$ALARM_LOG" 2>&1
 
-    echo "SSH check log saved to $ALARM_LOG"
+    echo -e "${GREEN} SSH check log saved to $ALARM_LOG ${NC}"
 }
 
 pkgcheck() {
-    echo "=== Checking up for missed security updates ==="
+    echo "${WHITE} === Checking up for missed security updates === ${NC}"
     local LOG="/var/log/critical-updates.log"
     local THRESHOLD=7.0
     local critical_pkgs=""
 
     if ! command -v debsecan >/dev/null 2>&1; then
-        echo "debsecan not installed, skipping critical updates check." | tee -a "$LOG"
+        echo -e "${RED} debsecan not installed, skipping critical updates check. ${NC}" | tee -a "$LOG"
         return 0
     fi
 
@@ -302,18 +302,18 @@ pkgcheck() {
     done
 
     if [ -n "$critical_pkgs" ]; then
-        echo -e "Критические уведомления безопасности:\n$critical_pkgs"
+        echo -e "${ORANGE} Критические уведомления безопасности:\n$critical_pkgs ${NC}"
         if command -v notify-send >/dev/null 2>&1; then
             echo -e "$critical_pkgs" | notify-send -u critical -t 0 "Обновления безопасности" "$(cat)"
         fi
-        echo "$(date): Найдены критические обновления: $critical_pkgs" >> "$LOG"
+        echo "${YELLOW} $(date): Найдены критические обновления: $critical_pkgs ${NC}" >> "$LOG"
     else
-        echo "No critical updates found."
+        echo -e "${GREEN} No critical updates found. ${NC}"
     fi
 }
 
 npswdcheck() {
-    echo "=== Checking up for NOPASSWD-commands ==="
+    echo -e "${WHITE} === Checking up for NOPASSWD-commands === ${NC}"
     sudo -l 2>/dev/null | grep NOPASSWD || echo -e "${GREEN} No NOPASSWD entries found."
 }
 discover_hosts(){
@@ -372,13 +372,13 @@ ntwaudit(){
     local illigal_log="/var/log/illegal_hosts.log"
     # Making white-list of hosts
     if [ ! -f "$TRUSTED_HOSTS_FILE" ]; then
-        echo "Making empty file of trusted hosts $TRUSTED_HOSTS_FILE. Add trusted hosts (IP, MAC, hostname) there, one per line." | tee -a "$LOG_GILE"
+        echo "${BLUE} Making empty file of trusted hosts $TRUSTED_HOSTS_FILE. Add trusted hosts (IP, MAC, hostname) there, one per line. ${NC}" | tee -a "$LOG_GILE"
         touch "$TRUSTED_HOSTS_FILE"
     fi
     # Getting list of alive hosts
     discover_hosts "$NETWORK_SUBNET" > "$hosts_file"
     local total_hosts=$(wc -l < "$hosts_file")
-    echo "Found alive hosts: $total_hosts" | tee -a "$LOG_FILE"
+    echo -e "${BLUE} Found alive hosts: $total_hosts ${NC}" | tee -a "$LOG_FILE"
     if [ "$total_hosts" -eq 0 ]; then
         echo "No alive hosts :("
         rm -f "$hosts_file"
@@ -408,7 +408,7 @@ ntwaudit(){
     if [ "$illegal_found" -eq 0 ]; then
         echo -e "${GREEN} No illegal hosts ${NC}" | tee -a "$LOG_FILE"
     else
-        echo -e "${RED} [!] Founded illegal hosts! Check up the logs: $illegal_log $NC}" | tee -a "$LOG_FILE"
+        echo -e "${RED} [!] Founded illegal hosts! Check up the logs: $illegal_log ${NC}" | tee -a "$LOG_FILE"
     fi
 }
 
@@ -465,4 +465,4 @@ echo -e "${WHITE} === System Monitor Script started at $(date) === ${NC}"
 [ $run_ntwaudit -eq 1 ] && ntwaudit
 [ $run_show_instruction -eq 1 ] && show_instruction
 
-echo "${WHITE} === System Monitor Script finished at $(date) === ${NC}"
+echo -e "${WHITE} === System Monitor Script finished at $(date) === ${NC}"
