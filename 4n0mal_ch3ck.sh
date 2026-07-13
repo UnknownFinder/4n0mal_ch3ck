@@ -5,6 +5,8 @@ set -euo pipefail
 readonly LOG_FILE="/var/log/listen_watch.log"
 readonly STATE_DIR="/var/lib/listen_watch"
 readonly STATE_FILE="$STATE_DIR/ports.txt"
+PROPAGATE_LOG="/var/log/propagate.log"
+ALREADY_RUN_FILE="$STATE_DIR/already_run_hosts.txt" 
 readonly MAX_CRON_TIME=1800
 readonly max_cpu=80
 readonly max_ram=80
@@ -57,6 +59,8 @@ show_instruction() {
     echo -e "${WHITE} [s] - check up for strange ssh events ${NC}"
     echo -e "${WHITE} [u] - check up for critical updates ${NC}"
     echo -e "${WHITE} [r] - check up for no-root commands ${NC}"
+    echo -e "${WHITE} [a] - check up for illegal hosts in subnet. Check that you uncomment this option in code. ${NC}"
+    echo -e "${WHITE} [w] - try to run script with same flags on other hosts ${NC}"
     echo -e "${WHITE} [h] - help ${NC}"
 }
 zmbkiller() {
@@ -399,9 +403,9 @@ ntwaudit(){
             illegal_found=1
             echo "Getting info from $ip" | tee -a "$LOG_FILE"
             snmpwalk -v2c -c "$SNMP_COMMUNITY" "$ip" 1.3.6.1.2.1.25.4.2.1.2 > "/tmp/snmp_procs_${ip}.txt" 2>/dev/null
-            echo " Getting info about users with ip-address $ip" | tee -a "$LOG_FILE"
+            echo -e "${BLUE} Getting info about users with ip-address $ip ${NC}" | tee -a "$LOG_FILE"
             snmpwalk -v2c -c "$SNMP_COMMUNITY" "$ip" 1.3.6.1.4.1.2021.8 > "/tmp/snmp_users_${ip}.txt" 2>/dev/null
-            echo "Saved in /tmp/snmp_*_$ip.txt" | tee -a "$LOG_FILE"
+            echo -e "${GREEN} Saved in /tmp/snmp_*_$ip.txt ${NC}" | tee -a "$LOG_FILE"
         fi
     done < "$hosts_file"
     rm -f "$hosts_file"
@@ -411,7 +415,79 @@ ntwaudit(){
         echo -e "${RED} [!] Founded illegal hosts! Check up the logs: $illegal_log ${NC}" | tee -a "$LOG_FILE"
     fi
 }
+#ALARM! THIS FUNCTION OF PROPAGATION SCRIPT TO OTHER HOSTS CAN BE DANGEROUSE! USING IT IS ONLY YOUR RISK! You can uncomment function "wamu" to use this function
+# wamu() {
+#     echo -e "${WHITE}=== Starting propagation to other hosts ===${NC}" | tee -a "$PROPAGATE_LOG"
 
+#     # Getting list of alive hosts
+#     local hosts_file="/tmp/live_hosts_prop.txt"
+#     discover_hosts "$NETWORK_SUBNET" > "$hosts_file"
+#     local total=$(wc -l < "$hosts_file")
+#     echo -e "${BLUE} Found $total alive hosts ${NC}" | tee -a "$PROPAGATE_LOG"
+
+#     # Upload already checked hosts
+#     touch "$ALREADY_RUN_FILE"
+#     local already=$(cat "$ALREADY_RUN_FILE" 2>/dev/null || true)
+
+#     # Path to script
+#     local SCRIPT_PATH=$(realpath "$0")
+#     local SCRIPT_NAME=$(basename "$SCRIPT_PATH")
+
+#     # SSH data
+#     local SSH_USER="${SSH_USER:-root}"
+#     local SSH_PASS="${SSH_PASS:-}"  # if you login by password, you need sshpass
+#     local SSH_KEY="${SSH_KEY:-~/.ssh/id_rsa}" # login by key
+
+#     while read -r ip; do
+#         # skipping ourselves
+#         if [[ "$ip" == "$(hostname -I | awk '{print $1}')" ]]; then
+#             echo -e "${YELLOW} Skipping self ($ip) ${NC}" | tee -a "$PROPAGATE_LOG"
+#             continue
+#         fi
+
+#         # CHeck-up for already running script
+#         if grep -qx "$ip" "$ALREADY_RUN_FILE"; then
+#             echo -e "${YELLOW} Already processed $ip, skipping ${NC}" | tee -a "$PROPAGATE_LOG"
+#             continue
+#         fi
+
+#         echo -e "${CYAN} Trying to connect to $ip ... ${NC}" | tee -a "$PROPAGATE_LOG"
+
+#         # Try to connect by SSH
+#         local ssh_cmd="ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5"
+#         if [[ -n "$SSH_KEY" && -f "$SSH_KEY" ]]; then
+#             ssh_cmd="$ssh_cmd -i $SSH_KEY"
+#         fi
+
+#         # Is SSH accessable?
+#         if ! $ssh_cmd "$SSH_USER@$ip" "echo OK" 2>/dev/null | grep -q "OK"; then
+#             echo -e "${RED} SSH to $ip failed, skipping ${RED}" | tee -a "$PROPAGATE_LOG"
+#             continue
+#         fi
+
+#         # Copy script to remote host
+#         echo -e "${BLUE} Copying script to $ip ${NC}" | tee -a "$PROPAGATE_LOG"
+#         scp -o StrictHostKeyChecking=no -o ConnectTimeout=5 \
+#             "${SSH_KEY:+-i $SSH_KEY}" \
+#             "$SCRIPT_PATH" "$SSH_USER@$ip:/tmp/$SCRIPT_NAME" 2>/dev/null || {
+#                 echo -e "${RED} Failed to copy to $ip ${NC}" | tee -a "$PROPAGATE_LOG"
+#                 continue
+#             }
+
+#         # Run script on remote host
+#         echo -e "${BLUE} Running script on $ip ${NC}" | tee -a "$PROPAGATE_LOG"
+#         $ssh_cmd "$SSH_USER@$ip" "sudo /tmp/$SCRIPT_NAME $*" &
+#         # Run as background task
+
+#         # Mark Ip as served
+#         echo "$ip" >> "$ALREADY_RUN_FILE"
+#         echo -e "${GREEN} Propagation to $ip initiated ${NC}" | tee -a "$PROPAGATE_LOG"
+
+#     done < "$hosts_file"
+
+#     rm -f "$hosts_file"
+#     echo -e "${WHITE} === Propagation finished === ${NC}" | tee -a "$PROPAGATE_LOG"
+# }
 # ==================== Main code ====================
 
 run_zmbkiller=0
@@ -422,10 +498,11 @@ run_sshcheck=0
 run_pkgcheck=0
 run_npswdcheck=0
 run_ntwaudit=0
+run_wanu=0
 run_show_instruction=0
 run_all=1
 
-while getopts "zcpnsurha" opt; do
+while getopts "zcpnsurhaw" opt; do
     case $opt in
         z) run_all=0; run_zmbkiller=1 ;;
         c) run_all=0; run_chkcron=1 ;;
@@ -435,6 +512,7 @@ while getopts "zcpnsurha" opt; do
         u) run_all=0; run_pkgcheck=1 ;;
         r) run_all=0; run_npswdcheck=1 ;;
         a) run_all=0; run_ntwaudit=1 ;;
+        #w) run_all=0; run_wanu=1 ;;
         h) run_all=0; run_show_instruction=1 ;;
         \?) echo -e "{$RED} Unknown option! Check the README file, mazafaka! ${NC}" >&2; exit 1 ;;
     esac
@@ -449,6 +527,7 @@ if [ $run_all -eq 1 ]; then
     run_pkgcheck=1
     run_npswdcheck=1
     run_ntwaudit=1
+    #run_wamu=1
 fi
 
 rtcheck
@@ -463,6 +542,7 @@ echo -e "${WHITE} === System Monitor Script started at $(date) === ${NC}"
 [ $run_pkgcheck -eq 1 ] && pkgcheck
 [ $run_npswdcheck -eq 1 ] && npswdcheck
 [ $run_ntwaudit -eq 1 ] && ntwaudit
+#[ $run_wamu -eq 1 ] && wamu "$@"
 [ $run_show_instruction -eq 1 ] && show_instruction
 
 echo -e "${WHITE} === System Monitor Script finished at $(date) === ${NC}"
