@@ -1,6 +1,6 @@
 #!/bin/bash
 # exec 2> /dev/null
-set -euo pipefail
+set -eu pipefail
 #==================== Initialization of variables ====================
 readonly LOG_FILE="/var/log/listen_watch.log"
 readonly STATE_DIR="/var/lib/listen_watch"
