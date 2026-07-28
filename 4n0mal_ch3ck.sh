@@ -17,17 +17,17 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 mkdir -p "$STATE_DIR"
 # ==================== Requirements ====================
-required_tools=("top", "ps", "grep", "lsof", "ss", "netstat", "debsecan", "ip", "route")
-for cmd in ${required_tools[@]}; do
+required_tools=("top" "ps" "grep" "lsof" "ss" "netstat" "debsecan" "ip" "route")
+for cmd in "${required_tools[@]}"; do
     if ! command -v "$cmd" &> /dev/null; then
-        echo "Error: $cmd os not installed"
+        echo "${RED} Error: $cmd os not installed ${NC}"
         exit 1
     fi
 done
 # ==================== Initialization of functions ====================
 rtcheck() {
     if [ "$(id -u)" != "0" ]; then
-        echo "NEED ROOT LOGIN! ERROR 0x28000" >&2
+        echo "${RED} NEED ROOT LOGIN! ERROR 0x28000 ${NC}" >&2
         exit 1
     fi
 }
@@ -36,7 +36,7 @@ display() {
     if [ -f "eye.txt" ]; then
         cat eye.txt
     else
-        echo "Eye file not found, skipping."
+        echo "${RED} Eye file not found, skipping. ${NC}"
     fi
     sleep 5
     clear
@@ -66,7 +66,7 @@ zmbkiller() {
             fi
         done
     else
-        echo "No zombie processes found."
+        echo "${GREEN} No zombie processes found. ${NC}"
     fi
 }
 chkcron() {
@@ -105,7 +105,7 @@ chkcron() {
     done < <(ps -eo pid,ppid,etime,args --no-headers 2>/dev/null)
 
     if [ $found -eq 0 ]; then
-        echo "No frozen cron tasks found."
+        echo "${GREEN} No frozen cron tasks found. ${NC}"
     fi
 
     echo "=== Checking up for anomalous/unusual crontasks (perhaps rootkits) ==="
@@ -163,7 +163,7 @@ nmpproc() {
             fi
         done
     else
-        echo "Overloading is not detected."
+        echo "${GREEN} Overloading is not detected. ${NC}"
     fi
 
     echo "=== Checking for extreme resource usage ==="
@@ -189,7 +189,7 @@ nmpproc() {
             fi
         done
     else
-        echo "No extreme load detected."
+        echo "${GREEN} No extreme load detected. ${NC}"
     fi
 }
 ntwcheck() {
@@ -217,9 +217,8 @@ ntwcheck() {
 sshcheck() {
     echo "=== Checking up for strange things with SSH ==="
     sleep 1
-
-    local ALARM_LOG="/var/log/alarm_$(date +%Y%m%d_%H%M%S).log"
     {
+    local ALARM_LOG="/var/log/alarm_$(date +%Y%m%d_%H%M%S).log"
         date
         timedatectl 2>/dev/null || echo "timedatectl not available"
         echo "--- w ---"
@@ -287,8 +286,8 @@ pkgcheck() {
     updates=$(apt list --upgradable 2>/dev/null | grep -v "Listing" | cut -d/ -f1 || true)
     for pkg in $updates; do
         cve_count=$(debsecan --suite "$(lsb_release -sc 2>/dev/null)" --only-fixed --package "$pkg" 2>/dev/null | \
-                    grep -E "\([7-9]\.[0-9]|10\.0\)" | wc -l)
-        if [ $cve_count -gt 0 ]; then
+                    grep -c -E "\([7-9]\.[0-9]|10\.0\)")
+        if [ "$cve_count" -gt 0 ]; then
             critical_pkgs="${critical_pkgs}\n- $pkg (исправляет $cve_count критических CVE)"
         fi
     done
@@ -300,13 +299,13 @@ pkgcheck() {
         fi
         echo "$(date): Найдены критические обновления: $critical_pkgs" >> "$LOG"
     else
-        echo "No critical updates found."
+        echo "${GREEN} No critical updates found. ${NC}"
     fi
 }
 
 npswdcheck() {
     echo "=== Checking up for NOPASSWD-commands ==="
-    sudo -l 2>/dev/null | grep NOPASSWD || echo "No NOPASSWD entries found."
+    sudo -l 2>/dev/null | grep NOPASSWD || echo "${GREEN} No NOPASSWD entries found. ${NC}"
 }
 
 # ==================== Main code ====================
