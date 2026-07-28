@@ -27,8 +27,8 @@ SNMP_COMMUNITY="${SNMP_COMMUNITY:-public}"
 NETWORK_SUBNET="${NETWORK_SUBNET:-192.168.1.0/24}" #[!] CHANGE IF YOU HAVE ANOTHER
 TRUSTED_HOSTS_FILE="${TRUSTED_HOSTS_FILE:-/etc/trusted_hosts}"
 # ==================== Requirements ====================
-required_tools=("top", "ps", "grep", "lsof", "ss", "netstat", "debsecan", "ip", "route", "nmap", "arp-scan", "snmpget")
-for cmd in ${required_tools[@]}; do
+required_tools=("top" "ps" "grep" "lsof" "ss" "netstat" "debsecan" "ip" "route" "nmap" "arp-scan" "snmpget")
+for cmd in "${required_tools[@]}"; do
     if ! command -v "$cmd" &> /dev/null; then
         echo -e "${RED} Error: $cmd os not installed ${NC}"
         exit 1
@@ -53,7 +53,7 @@ display() {
 }
 show_instruction() {
     echo -e "${WHITE} [z] - check up for zombie processes ${NC}"
-    echo -e "${WBITE} [c] - check up for anomalies in cron tasks ${NC}"
+    echo -e "${WHITE} [c] - check up for anomalies in cron tasks ${NC}"
     echo -e "${WHITE} [p] - check up for strange/unusual processes ${NC}"
     echo -e "${WHITE} [n] - check up for network anomalies ${NC}"
     echo -e "${WHITE} [s] - check up for strange ssh events ${NC}"
@@ -126,6 +126,7 @@ chkcron() {
         crontab -u "$user" -l 2>/dev/null | grep -E 'bash.*curl|bash.*wget' || true
     done
 }
+
 nmpproc() {
     echo -e "${WHITE} === Searching anomaly processes === ${NC}"
     sleep 2
@@ -143,6 +144,17 @@ nmpproc() {
             fi
         done
     fi
+
+    echo "${WHITE} === Checking up for processes with changed priority === ${NC}"
+    for f in /proc/[0-9]*/oom_score_adj; do
+        value=$(cat "$f" 2>/dev/null)
+        if [ "$value" != "0" ]; then
+            pid=${f#/proc/}
+            pid=${pid%/oom_score_adj}
+            echo "$pid: $value"
+        fi
+    done
+    ps -eo pid,comm,rss,oom_score_adj --sort=-rss | head
 
     echo -e "${WHITE} Processes of temporary directories: ${NC}"
     ps axeo pid,comm,args | grep -E '/(tmp|dev|run)/' | grep -v grep || true
@@ -162,7 +174,7 @@ nmpproc() {
     high_ram_proc=$(ps -eo pid,pmem,comm --no-headers | awk -v tresh="$max_ram" '$2+0 >= tresh {print $1}')
 
     if [ -n "$high_cpu_proc" ] || [ -n "$high_ram_proc" ]; then
-        echo -e "${ORANGFE} Warning! Overloading is detected. ${NC}"
+        echo -e "${ORANGE} Warning! Overloading is detected. ${NC}"
         all_procs=$(echo "$high_cpu_proc $high_ram_proc" | tr ' ' '\n' | sort -u)
         for pid in $all_procs; do
             if ps -p "$pid" >/dev/null 2>&1; then
@@ -299,8 +311,8 @@ pkgcheck() {
     updates=$(apt list --upgradable 2>/dev/null | grep -v "Listing" | cut -d/ -f1 || true)
     for pkg in $updates; do
         cve_count=$(debsecan --suite "$(lsb_release -sc 2>/dev/null)" --only-fixed --package "$pkg" 2>/dev/null | \
-                    grep -E "\([7-9]\.[0-9]|10\.0\)" | wc -l)
-        if [ $cve_count -gt 0 ]; then
+                    grep -c -E "\([7-9]\.[0-9]|10\.0\)")
+        if [[ $cve_count -gt 0 ]]; then
             critical_pkgs="${critical_pkgs}\n- $pkg (исправляет $cve_count критических CVE)"
         fi
     done
@@ -345,7 +357,7 @@ snmp_get_inf0(){
     hostname=$(snmpget -v2c -c "$community" -t 2 "$ip" 1.3.6.1.2.1.1.1.0 2>/dev/null | cut -d= -f2- | xargs)
     # Uptime
     uptime_raw=$(snmpget -v2c -c "$community" -t 2 "$ip" 1.3.6.1.2.1.1.1.0 2>/dev/null | awk '{print $NF}')
-    if [[ -n $"uptime_raw" && "$uptime_raw" =~ ^[0-9]+$ ]]; then
+    if [[ -n "$uptime_raw" && "$uptime_raw" =~ ^[0-9]+$ ]]; then
         uptime_sec=$((uptime_raw / 100))
         uptime_human=$(printf "%d days, %02d:%02d:%02d" $((uptime_sec/86400)) $(( (uptime_sec/86400)/3600 )) $(( (uptime_sec%3600)/60 )) $((uptime_sec%60)) )
     fi
@@ -373,10 +385,10 @@ check_illegal(){
 ntwaudit(){
     echo -e "${WHITE} === Searching illegal hosts === ${NC}" | tee -a "$LOG_FILE"
     local hosts_file="/tmp/live_hosts_$$.txt"
-    local illigal_log="/var/log/illegal_hosts.log"
+    local illegal_log="/var/log/illegal_hosts.log"
     # Making white-list of hosts
     if [ ! -f "$TRUSTED_HOSTS_FILE" ]; then
-        echo "${BLUE} Making empty file of trusted hosts $TRUSTED_HOSTS_FILE. Add trusted hosts (IP, MAC, hostname) there, one per line. ${NC}" | tee -a "$LOG_GILE"
+        echo "${BLUE} Making empty file of trusted hosts $TRUSTED_HOSTS_FILE. Add trusted hosts (IP, MAC, hostname) there, one per line. ${NC}" | tee -a "$LOG_FILE"
         touch "$TRUSTED_HOSTS_FILE"
     fi
     # Getting list of alive hosts
@@ -498,7 +510,7 @@ run_sshcheck=0
 run_pkgcheck=0
 run_npswdcheck=0
 run_ntwaudit=0
-run_wanu=0
+run_wamu=0
 run_show_instruction=0
 run_all=1
 
@@ -512,7 +524,7 @@ while getopts "zcpnsurhaw" opt; do
         u) run_all=0; run_pkgcheck=1 ;;
         r) run_all=0; run_npswdcheck=1 ;;
         a) run_all=0; run_ntwaudit=1 ;;
-        #w) run_all=0; run_wanu=1 ;;
+        w) run_all=0; run_wanu=1 ;;
         h) run_all=0; run_show_instruction=1 ;;
         \?) echo -e "{$RED} Unknown option! Check the README file, mazafaka! ${NC}" >&2; exit 1 ;;
     esac
@@ -536,13 +548,13 @@ echo -e "${WHITE} === System Monitor Script started at $(date) === ${NC}"
 
 [ $run_zmbkiller -eq 1 ] && zmbkiller
 [ $run_chkcron -eq 1 ] && chkcron
-[ $run_nmpproc -eq 1 ] && nmpproc
+[ $run_nmpproc -eq 1 ] && nmpproc && chpriocheck
 [ $run_ntwcheck -eq 1 ] && ntwcheck
 [ $run_sshcheck -eq 1 ] && sshcheck
 [ $run_pkgcheck -eq 1 ] && pkgcheck
 [ $run_npswdcheck -eq 1 ] && npswdcheck
 [ $run_ntwaudit -eq 1 ] && ntwaudit
-#[ $run_wamu -eq 1 ] && wamu "$@"
+[ $run_wamu -eq 1 ] && wamu "$@"
 [ $run_show_instruction -eq 1 ] && show_instruction
 
 echo -e "${WHITE} === System Monitor Script finished at $(date) === ${NC}"
