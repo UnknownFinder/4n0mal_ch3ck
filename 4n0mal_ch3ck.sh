@@ -1,8 +1,9 @@
 #!/bin/bash
 # exec 2> /dev/null
-set -eu pipefail
+set -euo pipefail
 #==================== Initialization of variables ====================
 readonly LOG_FILE="/var/log/listen_watch.log"
+readonly ALARM_LOG="/var/log/alarm_$(date +%Y%m%d_%H%M%S).log"
 readonly STATE_DIR="/var/lib/listen_watch"
 readonly STATE_FILE="$STATE_DIR/ports.txt"
 PROPAGATE_LOG="/var/log/propagate.log"
@@ -19,15 +20,19 @@ GREEN='\033[0;32m'
 CYAN='\033[1;36m'
 BLUE='\033[1;34m'
 PURPLE='\033[1;35m'
-WHITE='033\[1;37m'
+WHITE='\033[1;37m'
 NC='\033[0m'
 mkdir -p "$STATE_DIR"
+KERNEL_VER=$(uname -r)
+MODULES_DIR="/lib/modules/$KERNEL_VER"
+KNOWN_BUILTIN="/lib/modules/$KERNEL_VER/modules.builtin"
+ALIAS_FILE="/lib/modules/$KERNEL_VER/modules.alias"
 # ==================== Network Audit variebles ====================
 SNMP_COMMUNITY="${SNMP_COMMUNITY:-public}"
 NETWORK_SUBNET="${NETWORK_SUBNET:-192.168.1.0/24}" #[!] CHANGE IF YOU HAVE ANOTHER
 TRUSTED_HOSTS_FILE="${TRUSTED_HOSTS_FILE:-/etc/trusted_hosts}"
 # ==================== Requirements ====================
-required_tools=("top" "ps" "grep" "lsof" "ss" "netstat" "debsecan" "ip" "route" "nmap" "arp-scan" "snmpget")
+required_tools=("top" "ps" "grep" "lsof" "ss" "netstat" "debsecan" "ip" "route" "nmap" "arp-scan" "snmpget" "lm-sensors")
 for cmd in "${required_tools[@]}"; do
     if ! command -v "$cmd" &> /dev/null; then
         echo -e "${RED} Error: $cmd os not installed ${NC}"
@@ -122,7 +127,7 @@ chkcron() {
 
     echo -e "${WHITE} === Checking up for anomalous/unusual crontasks (perhaps rootkits) === ${NC}"
     for user in $(cut -f1 -d: /etc/passwd); do
-        echo "${CYAN} ••• $user ••• ${NC}"
+        echo "${CYAN} ••• $ALARM_LOG="/var/log/alarm_$(date +%Y%m%d_%H%M%S).log"user ••• ${NC}"
         crontab -u "$user" -l 2>/dev/null | grep -E 'bash.*curl|bash.*wget' || true
     done
 }
@@ -242,7 +247,6 @@ sshcheck() {
     echo -e "${WHITE} === Checking up for strange things with SSH === ${NC}"
     sleep 1
 
-    local ALARM_LOG="/var/log/alarm_$(date +%Y%m%d_%H%M%S).log"
     {
         date
         timedatectl 2>/dev/null || echo -e "${RED} timedatectl not available ${NC}"
@@ -303,11 +307,6 @@ pkgcheck() {
     local THRESHOLD=7.0
     local critical_pkgs=""
 
-    if ! command -v debsecan >/dev/null 2>&1; then
-        echo -e "${RED} debsecan not installed, skipping critical updates check. ${NC}" | tee -a "$LOG"
-        return 0
-    fi
-
     updates=$(apt list --upgradable 2>/dev/null | grep -v "Listing" | cut -d/ -f1 || true)
     for pkg in $updates; do
         cve_count=$(debsecan --suite "$(lsb_release -sc 2>/dev/null)" --only-fixed --package "$pkg" 2>/dev/null | \
@@ -338,14 +337,14 @@ discover_hosts(){
     rm -f "$tmp_file"
     echo -e "${BLUE} Scanning network for alive hosts:"
     nmap -sn "$subnet" -oG - 2>/dev/null | awk '/Up$/{print $2}' >> "$tmp_file"
-    arp-scan --local --quiet 2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+' | awk '{print &1}' >> "$tmp_file"
+    arp-scan --local --quiet 2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+' | awk '{print $1}' >> "$tmp_file"
     sort -u "$tmp_file" -o "$tmp_file"
     sed -i '/^$/d' "$tmp_file"
     cat "$tmp_file"
     rm -f "$tmp_file"
 }
 
-snmp_get_inf0(){
+snmp_get_info(){
     local ip=$1
     local community="${SNSMP_COMMUNITY:-public}"
     local sysdesc=""
@@ -354,9 +353,9 @@ snmp_get_inf0(){
     # Getting system description
     sysdesc=$(snmpget -v2c -c "$community" -t 2 "$ip" 1.3.6.1.2.1.1.1.0 2>/dev/null | cut -d= -f2-  | xargs)
     # Hostname
-    hostname=$(snmpget -v2c -c "$community" -t 2 "$ip" 1.3.6.1.2.1.1.1.0 2>/dev/null | cut -d= -f2- | xargs)
+    hostname=$(snmpget -v2c -c "$community" -t 2 "$ip" 1.3.6.1.2.1.1.5.0 2>/dev/null | cut -d= -f2- | xargs)
     # Uptime
-    uptime_raw=$(snmpget -v2c -c "$community" -t 2 "$ip" 1.3.6.1.2.1.1.1.0 2>/dev/null | awk '{print $NF}')
+    uptime_raw=$(snmpget -v2c -c "$community" -t 2 "$ip" 1.3.6.1.2.1.1.3.0 2>/dev/null | awk '{print $NF}')
     if [[ -n "$uptime_raw" && "$uptime_raw" =~ ^[0-9]+$ ]]; then
         uptime_sec=$((uptime_raw / 100))
         uptime_human=$(printf "%d days, %02d:%02d:%02d" $((uptime_sec/86400)) $(( (uptime_sec/86400)/3600 )) $(( (uptime_sec%3600)/60 )) $((uptime_sec%60)) )
@@ -402,7 +401,7 @@ ntwaudit(){
     fi
     local illegal_found=0
     while read -r ip; do
-        mac=$(ip neigh show "$ip" 2>/dev/null)
+        mac=$(ip neigh show "$ip" 2>/dev/null | awk '{print $5}')
         snmp_info=$(snmp_get_info "$ip")
         hostname=$(echo "$snmp_info" | grep -oP 'Hostname: \K[^ ]+' | head -1)
         if [[ -z "$hostname" ]]; then
@@ -500,6 +499,43 @@ ntwaudit(){
 #     rm -f "$hosts_file"
 #     echo -e "${WHITE} === Propagation finished === ${NC}" | tee -a "$PROPAGATE_LOG"
 # }
+tempchck() {
+    sensors
+}
+krnmdlchck() {
+    check_module_path() {
+        local modname="$1"
+        if find "$MODULES_DIR" -name "$(modname).ko*" -print -quit | grep -q .; then
+            return 0
+        else
+            return 1
+        fi
+    }
+
+    check_signature() {
+        local modname="$1"
+        local sig=$(modinfo -F signature "$modname" 2>/dev/null || true)
+        if [[ -n "$sig" && "$sig" != "unsigned" ]]; then
+            echo "${GREEN} Signature verified ${NC}"
+        else
+            echo "${YELLOW} Signature unverified ${NC}"
+        fi
+    }
+
+    while read -r modname _; do
+        echo "Module: $modname"
+        if check_module_path "$modname"; then
+            echo "File: Found"
+        else
+            echo "FIle: does not exist in $MODULE_DIR"
+        fi
+        check_signature "$modname"
+        mod_path=$(modinfo -F filename "$modname" 2>/dev/null || true)
+        if [[ -n "$mod_path" && "$mod_path" != "$MODULES_DIR"* ]]; then
+            echo "Unusual loading path: $mod_path"
+        fi
+    done < /proc/modules
+}
 # ==================== Main code ====================
 
 run_zmbkiller=0
@@ -511,10 +547,12 @@ run_pkgcheck=0
 run_npswdcheck=0
 run_ntwaudit=0
 run_wamu=0
+run_tempchck=0
+run_krnmdlchck=0
 run_show_instruction=0
 run_all=1
 
-while getopts "zcpnsurhaw" opt; do
+while getopts "zcpnsurhawtk" opt; do
     case $opt in
         z) run_all=0; run_zmbkiller=1 ;;
         c) run_all=0; run_chkcron=1 ;;
@@ -524,8 +562,10 @@ while getopts "zcpnsurhaw" opt; do
         u) run_all=0; run_pkgcheck=1 ;;
         r) run_all=0; run_npswdcheck=1 ;;
         a) run_all=0; run_ntwaudit=1 ;;
-        w) run_all=0; run_wanu=1 ;;
+        w) run_all=0; run_wamu=1 ;;
         h) run_all=0; run_show_instruction=1 ;;
+        t) run_all=0; run_tempchck=1 ;;
+        k) run_all=0; run_krnmdlchck=1 ;;
         \?) echo -e "{$RED} Unknown option! Check the README file, mazafaka! ${NC}" >&2; exit 1 ;;
     esac
 done
@@ -540,6 +580,8 @@ if [ $run_all -eq 1 ]; then
     run_npswdcheck=1
     run_ntwaudit=1
     #run_wamu=1
+    run_tempchck=1
+    run_krnmdlchck=1
 fi
 
 rtcheck
@@ -548,13 +590,15 @@ echo -e "${WHITE} === System Monitor Script started at $(date) === ${NC}"
 
 [ $run_zmbkiller -eq 1 ] && zmbkiller
 [ $run_chkcron -eq 1 ] && chkcron
-[ $run_nmpproc -eq 1 ] && nmpproc && chpriocheck
+[ $run_nmpproc -eq 1 ] && nmpproc
 [ $run_ntwcheck -eq 1 ] && ntwcheck
 [ $run_sshcheck -eq 1 ] && sshcheck
 [ $run_pkgcheck -eq 1 ] && pkgcheck
 [ $run_npswdcheck -eq 1 ] && npswdcheck
 [ $run_ntwaudit -eq 1 ] && ntwaudit
 [ $run_wamu -eq 1 ] && wamu "$@"
+[ $run_tempchck -eq 1 ] && tempchck
+[ $run_krnmdlchck -eq 1 ] && krnmdlchck
 [ $run_show_instruction -eq 1 ] && show_instruction
 
 echo -e "${WHITE} === System Monitor Script finished at $(date) === ${NC}"
