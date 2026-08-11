@@ -32,7 +32,7 @@ SNMP_COMMUNITY="${SNMP_COMMUNITY:-public}"
 NETWORK_SUBNET="${NETWORK_SUBNET:-192.168.1.0/24}" #[!] CHANGE IF YOU HAVE ANOTHER
 TRUSTED_HOSTS_FILE="${TRUSTED_HOSTS_FILE:-/etc/trusted_hosts}"
 # ==================== Requirements ====================
-required_tools=("top" "ps" "grep" "lsof" "ss" "netstat" "debsecan" "ip" "route" "nmap" "arp-scan" "snmpget" "lm-sensors")
+required_tools=("top" "ps" "grep" "lsof" "ss" "netstat" "debsecan" "ip" "route" "nmap" "arp-scan" "snmpget" "lm-sensors" "lsb_release")
 for cmd in "${required_tools[@]}"; do
     if ! command -v "$cmd" &> /dev/null; then
         echo -e "${RED} Error: $cmd os not installed ${NC}"
@@ -66,6 +66,8 @@ show_instruction() {
     echo -e "${WHITE} [r] - check up for no-root commands ${NC}"
     echo -e "${WHITE} [a] - check up for illegal hosts in subnet. Check that you uncomment this option in code. ${NC}"
     echo -e "${WHITE} [w] - try to run script with same flags on other hosts ${NC}"
+    echo -e "${WHITE} [t] - check up system temperature ${NC}"
+    echo -e "${WHITE} [k] - check up kernel modules ${NC}"
     echo -e "${WHITE} [h] - help ${NC}"
 }
 zmbkiller() {
@@ -127,7 +129,7 @@ chkcron() {
 
     echo -e "${WHITE} === Checking up for anomalous/unusual crontasks (perhaps rootkits) === ${NC}"
     for user in $(cut -f1 -d: /etc/passwd); do
-        echo "${CYAN} ••• $ALARM_LOG="/var/log/alarm_$(date +%Y%m%d_%H%M%S).log"user ••• ${NC}"
+        echo "${CYAN} ••• $user ••• ${NC}"
         crontab -u "$user" -l 2>/dev/null | grep -E 'bash.*curl|bash.*wget' || true
     done
 }
@@ -346,7 +348,7 @@ discover_hosts(){
 
 snmp_get_info(){
     local ip=$1
-    local community="${SNSMP_COMMUNITY:-public}"
+    local community="${SNMP_COMMUNITY:-public}"
     local sysdesc=""
     local hostname=""
     local uptime_human="N/A"
@@ -366,7 +368,7 @@ snmp_get_info(){
 # Check-up legal/illegal host
 check_illegal(){
     local ip="$1"
-    local mac="$1"
+    local mac="$2"
     local hostname="$3"
     # If white-list does not exists
     if [ ! -f "$TRUSTED_HOSTS_FILE" ]; then
@@ -505,7 +507,7 @@ tempchck() {
 krnmdlchck() {
     check_module_path() {
         local modname="$1"
-        if find "$MODULES_DIR" -name "$(modname).ko*" -print -quit | grep -q .; then
+        if find "$MODULES_DIR" -name "$modname.ko*" -print -quit | grep -q .; then
             return 0
         else
             return 1
@@ -527,7 +529,7 @@ krnmdlchck() {
         if check_module_path "$modname"; then
             echo "File: Found"
         else
-            echo "FIle: does not exist in $MODULE_DIR"
+            echo "FIle: does not exist in $MODULES_DIR"
         fi
         check_signature "$modname"
         mod_path=$(modinfo -F filename "$modname" 2>/dev/null || true)
