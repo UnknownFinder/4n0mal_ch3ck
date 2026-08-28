@@ -80,7 +80,6 @@ show_instruction() {
 
 zmbkiller() {
     echo -e "${WHITE} === Checking for zombie processes === ${NC}"
-    # More reliable zombie detection across different ps versions
     zombies=$(ps -eo pid,stat,ppid,comm | awk '$2 ~ /^Z/ {print $1, $3, $4}')
     if [ -n "$zombies" ]; then
       for zombie in $zombies; do
@@ -173,14 +172,12 @@ nmpproc() {
     echo -e "${WHITE} Non-typical incoming connections: ${NC}"
     lsof -i -nP 2>/dev/null | grep LISTEN | grep -Ev ':(22|80|443)' | grep -v "COMMAND" || true
 
-    echo -e "${WHITE} === Checking for high resource usage === ${NC}"
-    local high_cpu_proc high_ram_proc
-    high_cpu_proc=$(ps -eo pid,pcpu,comm --no-headers 2>/dev/null | awk -v tresh="$max_cpu" '$2+0 >= tresh {print $1}' || true)
-    high_ram_proc=$(ps -eo pid,pmem,comm --no-headers 2>/dev/null | awk -v tresh="$max_ram" '$2+0 >= tresh {print $1}' || true)
+    echo -e "${WHITE} === Checking for high resource usage === ${NC} "
+    high_cpu_proc=$(ps -eo pid,pcpu,comm --no-headers | awk -v tresh="$max_cpu" '$2+0 >= tresh {print $1}')
+    high_ram_proc=$(ps -eo pid,pmem,comm --no-headers | awk -v tresh="$max_ram" '$2+0 >= tresh {print $1}')
 
     if [ -n "$high_cpu_proc" ] || [ -n "$high_ram_proc" ]; then
-        echo -e "${ORANGE} [!] Warning! Overloading is detected. ${NC}"
-        local all_procs
+        echo -e "${ORANGE} Warning! Overloading is detected. ${NC}"
         all_procs=$(echo "$high_cpu_proc $high_ram_proc" | tr ' ' '\n' | sort -u)
         for pid in $all_procs; do
             if ps -p "$pid" >/dev/null 2>&1; then
@@ -188,13 +185,38 @@ nmpproc() {
                     echo -e "${YELLOW} Skipping system/self process $pid ${NC}"
                     continue
                 fi
-                echo -e "${YELLOW} Lowering priority (renice) for process $pid ${NC}"
+                echo -e "${YELLOW} Changing priority for process $pid ${NC}"
                 renice 15 -p "$pid" 2>/dev/null || echo -e "${RED} Failed to renice process $pid ${NC}"
             fi
         done
-        echo -e "${RED} [!] SAFE MODE: Auto-termination (kill) is DISABLED. Investigate manually. ${NC}"
     else
         echo -e "${GREEN} Overloading is not detected. ${NC}"
+    fi
+
+    echo -e "${WHITE} === Checking for extreme resource usage === ${NC}"
+    ex_cpu_proc=$(ps -eo pid,pcpu,comm --no-headers | awk -v tresh="$ex_cpu" '$2+0 >= tresh {print $1}')
+    ex_mem_proc=$(ps -eo pid,pmem,comm --no-headers | awk -v tresh="$ex_mem" '$2+0 >= tresh {print $1}')
+
+    if [ -n "$ex_cpu_proc" ] || [ -n "$ex_mem_proc" ]; then
+        echo -e "${RED} Warning! Extremely high load! ${NC}"
+        all_ex_procs=$(echo "$ex_cpu_proc $ex_mem_proc" | tr ' ' '\n' | sort -u)
+        for pid in $all_ex_procs; do
+            if ps -p "$pid" >/dev/null 2>&1; then
+                if [ "$pid" -eq 1 ] || [ "$pid" -eq 2 ] || [ "$pid" -eq $$ ]; then
+                    echo -e "${YELLOW} Skipping system/self process $pid ${NC}"
+                    continue
+                fi
+                echo -e "${YELLOW} Terminating process $pid ${NC}"
+                kill -15 "$pid" 2>/dev/null
+                sleep 2
+                if ps -p "$pid" >/dev/null 2>&1; then
+                    echo -e "${ORANGE} Force killing process $pid ${NC}"
+                    kill -9 "$pid" 2>/dev/null
+                fi
+            fi
+        done
+    else
+        echo -e "${GREEN} No extreme load detected. ${NC}"
     fi
 }
 
