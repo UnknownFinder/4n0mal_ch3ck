@@ -252,8 +252,6 @@ pkgcheck() {
     echo -e "${WHITE} === Checking up for missed security updates === ${NC}"
     local LOG="/var/log/critical-updates.log"
     local critical_pkgs=""
-
-    # Safe check for Debian-specific tool
     if ! command -v debsecan >/dev/null 2>&1; then
         echo -e "${YELLOW} debsecan not installed, skipping critical CVE check. ${NC}"
         return 0
@@ -271,7 +269,6 @@ pkgcheck() {
 
     if [ -n "$critical_pkgs" ]; then
         echo -e "${ORANGE} Critical security notifications:\n$critical_pkgs ${NC}"
-        # FIXED: Removed broken $(cat) pipe
         if command -v notify-send >/dev/null 2>&1; then
             notify-send -u critical -t 0 "Обновления безопасности" "$critical_pkgs" || true
         fi
