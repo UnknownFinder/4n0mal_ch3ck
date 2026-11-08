@@ -1,5 +1,4 @@
 #!/bin/bash
-# exec 2> /dev/null
 set -euo pipefail
 export LC_ALL=C
 #==================== Initialization of variables ====================
@@ -24,19 +23,49 @@ BLUE='\033[1;34m'
 PURPLE='\033[1;35m'
 WHITE='\033[1;37m'
 NC='\033[0m'
+
 mkdir -p "$STATE_DIR"
+KERNEL_VER=$(uname -r)
+MODULES_DIR="/lib/modules/$KERNEL_VER"
+
+# ==================== Network Audit variables ====================
+SNMP_COMMUNITY="${SNMP_COMMUNITY:-public}"
+NETWORK_SUBNET="${NETWORK_SUBNET:-192.168.1.0/24}"
+TRUSTED_HOSTS_FILE="${TRUSTED_HOSTS_FILE:-/etc/trusted_hosts}"
+
+# ==================== Helping functions ====================
+check_module_path(){
+local modname="$1"
+if find "$MODULES_DIR" -name "$modname.ko*" -print -quit 2>/dev/null | grep -q .; then
+return 0
+else
+return 1
+fi
+}
+check_signature() {
+    local modname="$1"
+    local sig
+    sig=$(modinfo -F signature "$modname" 2>/dev/null || true)
+    if [[ -n "$sig" && "$sig" != "unsigned" ]]; then
+        echo -e "${GREEN} Signature verified ${NC}"
+    else
+        echo -e "${YELLOW} Signature unverified or unsigned ${NC}"
+    fi
+    }
+
 # ==================== Requirements ====================
-required_tools=("top" "ps" "grep" "lsof" "ss" "netstat" "debsecan" "ip" "route")
+required_tools=("top" "ps" "grep" "lsof" "ss" "ip" "route" "nmap" "arp-scan" "snmpget" "snmpwalk" "sensors" "lsb_release")
 for cmd in "${required_tools[@]}"; do
     if ! command -v "$cmd" &> /dev/null; then
-        echo "${RED} Error: $cmd is not installed ${NC}"
+        echo -e "${RED} Error: $cmd is not installed ${NC}"
         exit 1
     fi
 done
+
 # ==================== Initialization of functions ====================
 rtcheck() {
     if [ "$(id -u)" != "0" ]; then
-        echo "${RED} NEED ROOT LOGIN! ERROR 0x28000 ${NC}" >&2
+        echo -e "${RED} NEED ROOT LOGIN! ERROR 0x28000 ${NC}" >&2
         exit 1
     fi
 }
@@ -69,21 +98,21 @@ show_instruction() {
 }
 
 zmbkiller() {
-    echo "=== Checking for zombie processes ==="
-    zombies=$(ps aux | awk '$8 ~ /^[Zz]/ {print $2}')
-    if [ -n "$zombies" ]; then
-        echo "Zombie processes found: $zombies"
-        for zombie in $zombies; do
-            parent_pid=$(ps -o ppid= -p "$zombie" 2>/dev/null | tr -d ' ')
-            if [ -n "$parent_pid" ] && [ "$parent_pid" -ne 1 ]; then
-                echo "Killing parent process $parent_pid of zombie $zombie"
-                kill -9 "$parent_pid" 2>/dev/null
-            else
-                echo "Cannot kill zombie $zombie (parent is init or not found)"
-            fi
-        done
-    else
-        echo "${GREEN} No zombie processes found. ${NC}"
+    echo -e "${WHITE} === Checking for zombie processes === ${NC}"
+    local zombie_found=0
+    while read -r z_pid z_ppid z_comm; do
+        [ -z "$z_pid" ] && continue
+        zombie_found=1
+        if [ "$z_ppid" -ne 1 ]; then
+            echo "Killing parent process $z_ppid of zombie $z_pid ($z_comm)"
+            kill -9 "$z_ppid" 2>/dev/null || true
+        else
+            echo -e "${YELLOW} Cannot kill zombie $z_pid (parent is init) ${NC}"
+        fi
+    done < <(ps -eo pid,ppid,stat,comm | awk '$3 ~ /^Z/ {print $1, $2, $4}')
+
+    if [ "$zombie_found" -eq 0 ]; then
+        echo -e "${GREEN} No zombie processes found. ${NC}"
     fi
 }
 
@@ -124,7 +153,7 @@ chkcron() {
     done < <(ps -eo pid,ppid,etime,args --no-headers 2>/dev/null || true)
 
     if [ $found -eq 0 ]; then
-        echo "${GREEN} No frozen cron tasks found. ${NC}"
+        echo -e "${GREEN} No frozen cron tasks found. ${NC}"
     fi
 
     echo -e "${WHITE} === Checking for anomalous/unusual crontasks === ${NC}"
@@ -197,7 +226,7 @@ nmpproc() {
             fi
         done
     else
-        echo "${GREEN} Overloading is not detected. ${NC}"
+        echo -e "${GREEN} Overloading is not detected. ${NC}"
     fi
 
     echo -e "${WHITE} === Checking for extreme resource usage === ${NC}"
@@ -224,7 +253,7 @@ nmpproc() {
             fi
         done
     else
-        echo "${GREEN} No extreme load detected. ${NC}"
+        echo -e "${GREEN} No extreme load detected. ${NC}"
     fi
 }
 
@@ -254,55 +283,22 @@ sshcheck() {
     echo -e "${WHITE} === Checking up for strange things with SSH === ${NC}"
     sleep 1
     {
-    local ALARM_LOG="/var/log/alarm_$(date +%Y%m%d_%H%M%S).log"
-        date
-        timedatectl 2>/dev/null || echo "timedatectl not available"
-        echo "--- w ---"
-        w
-        echo "--- who ---"
-        who
-        echo "--- ps auxww ---"
-        ps auxww
-        echo "--- netstat -tulpn ---"
-        if command -v netstat >/dev/null; then netstat -tulpn 2>/dev/null; else echo "netstat not installed"; fi
-        echo "--- ss -tulpn ---"
-        if command -v ss >/dev/null; then ss -tulpn 2>/dev/null; else echo "ss not installed"; fi
-        echo "--- netstat -an | grep ESTABLISHED ---"
-        if command -v netstat >/dev/null; then netstat -an 2>/dev/null | grep ESTABLISHED || true; fi
-        echo "--- /etc/passwd ---"
-        cat /etc/passwd
-        echo "--- lastlog ---"
-        lastlog
-        echo "--- last -f /var/log/wtmp ---"
-        last -f /var/log/wtmp 2>/dev/null || true
-        echo "--- last -f /var/log/btmp ---"
-        last -f /var/log/btmp 2>/dev/null || true
-        echo "--- crontab -l (root) ---"
-        crontab -l 2>/dev/null || true
-        for user in $(cut -f1 -d: /etc/passwd); do
-            echo "--- crontab for $user ---"
-            crontab -u "$user" -l 2>/dev/null || true
-        done
-        echo "--- find /bin /sbin -type f -mtime -1 ---"
-        find /bin /sbin -type f -mtime -1 2>/dev/null || true
-        echo "--- find authorized_keys ---"
-        find /root /home -name "authorized_keys" 2>/dev/null || true
-        echo "--- /root/.bash_history ---"
-        cat /root/.bash_history 2>/dev/null || true
-        echo "--- tail -100 /var/log/auth.log ---"
-        tail -100 /var/log/auth.log 2>/dev/null || true
-        echo "--- journalctl --lines=50 ---"
-        journalctl -xe --lines=50 2>/dev/null || true
-        echo "--- route -n ---"
-        if command -v route >/dev/null; then route -n 2>/dev/null; else echo "route not installed"; fi
-        echo "--- ip route show ---"
-        if command -v ip >/dev/null; then ip route show 2>/dev/null; else echo "ip not installed"; fi
-        echo "--- ip neigh ---"
-        if command -v ip >/dev/null; then ip neigh 2>/dev/null; else echo "ip not installed"; fi
-        echo "--- lsof -i -P -n | grep LISTEN ---"
-        if command -v lsof >/dev/null; then lsof -i -P -n 2>/dev/null | grep LISTEN || true; fi
-        echo "--- lsof -i -P -n | grep ESTABLISHED ---"
-        if command -v lsof >/dev/null; then lsof -i -P -n 2>/dev/null | grep ESTABLISHED || true; fi
+    date
+    timedatectl 2>/dev/null || echo -e "${RED} timedatectl not available ${NC}"
+    echo -e "${WHITE} --- w --- ${NC}"; w 2>/dev/null || true
+    echo -e "${WHITE} --- who --- ${NC}"; who 2>/dev/null || true
+    echo -e "${WHITE} --- ps auxww --- ${NC}"; ps auxww 2>/dev/null || true
+    echo -e "${WHITE} --- ss -tulpn --- ${NC}"; ss -tulpn 2>/dev/null || true
+    echo -e "${WHITE} --- /etc/passwd --- ${NC}"; cat /etc/passwd 2>/dev/null || true
+    echo -e "${WHITE} --- lastlog --- ${NC}"; lastlog 2>/dev/null || true
+    echo -e "${WHITE} --- last -f /var/log/wtmp --- ${NC}"; last -f /var/log/wtmp 2>/dev/null || true
+    echo -e "${WHITE} --- last -f /var/log/btmp --- ${NC}"; last -f /var/log/btmp 2>/dev/null || true
+    echo -e "${WHITE} --- find /bin /sbin -type f -mtime -1 --- ${NC}"; find /bin /sbin -type f -mtime -1 2>/dev/null || true
+    echo -e "${WHITE} --- find authorized_keys --- ${NC}"; find /root /home -name "authorized_keys" 2>/dev/null || true
+    echo -e "${WHITE} --- tail -100 /var/log/auth.log --- ${NC}"; tail -100 /var/log/auth.log 2>/dev/null || true
+    echo -e "${WHITE} --- journalctl --lines=50 --- ${NC}"; journalctl -xe --lines=50 2>/dev/null || true
+    echo -e "${WHITE} --- ip route show --- ${NC}"; ip route show 2>/dev/null || true
+    echo -e "${WHITE} --- ip neigh --- ${NC}"; ip neigh 2>/dev/null || true
     } > "$ALARM_LOG" 2>&1
     echo -e "${GREEN} SSH check log saved to $ALARM_LOG ${NC}"
 }
@@ -317,10 +313,11 @@ pkgcheck() {
     local updates
     updates=$(apt list --upgradable 2>/dev/null | grep -v "Listing" | cut -d/ -f1 || true)
     for pkg in $updates; do
-        cve_count=$(debsecan --suite "$(lsb_release -sc 2>/dev/null)" --only-fixed --package "$pkg" 2>/dev/null | \
-                    grep -c -E "\([7-9]\.[0-9]|10\.0\)")
-        if [ "$cve_count" -gt 0 ]; then
-            critical_pkgs="${critical_pkgs}\n- $pkg (исправляет $cve_count критических CVE)"
+        [ -z "$pkg" ] && continue
+        local cve_count
+        cve_count=$(debsecan --suite "$(lsb_release -sc 2>/dev/null)" --only-fixed --package "$pkg" 2>/dev/null | grep -c -E '\([7-9]\.[0-9]|10\.0\)' || true)
+        if [[ "$cve_count" -gt 0 ]]; then
+            critical_pkgs="${critical_pkgs}\n- $pkg (fixes $cve_count critical CVEs)"
         fi
     done
     if [ -n "$critical_pkgs" ]; then
@@ -330,12 +327,24 @@ pkgcheck() {
     fi
         echo "$(date): Найдены критические обновления: $critical_pkgs" >> "$LOG"
     else
-        echo "${GREEN} No critical updates found. ${NC}"
+        echo -e "${GREEN} No critical updates found. ${NC}"
     fi
 }
 npswdcheck() {
-    echo "=== Checking up for NOPASSWD-commands ==="
-    sudo -l 2>/dev/null | grep NOPASSWD || echo "${GREEN} No NOPASSWD entries found. ${NC}"
+    echo -e "${WHITE} === Checking up for NOPASSWD-commands === ${NC}"
+    sudo -l 2>/dev/null | grep NOPASSWD || echo -e "${GREEN} No NOPASSWD entries found. ${NC}"
+}
+discover_hosts(){
+    local subnet="${1:-$NETWORK_SUBNET}"
+    local tmp_file="/tmp/hosts_$$.txt"
+    rm -f "$tmp_file"
+    echo -e "${BLUE} Scanning network for alive hosts... ${NC}"
+    nmap -sn "$subnet" -oG - 2>/dev/null | awk '/Up$/{print $2}' >> "$tmp_file" || true
+    arp-scan --local --quiet 2>/dev/null | grep -E '^[0-9]+.[0-9]+.[0-9]+' | awk '{print $1}' >> "$tmp_file" || true
+    sort -u "$tmp_file" -o "$tmp_file"
+    sed -i '/^$/d' "$tmp_file"
+    cat "$tmp_file"
+    rm -f "$tmp_file"
 }
 snmp_get_info(){
     local ip=$1
@@ -344,6 +353,7 @@ snmp_get_info(){
     sysdesc=$(snmpget -v2c -c "$community" -t 2 "$ip" 1.3.6.1.2.1.1.1.0 2>/dev/null | cut -d= -f2- | xargs || true)
     hostname=$(snmpget -v2c -c "$community" -t 2 "$ip" 1.3.6.1.2.1.1.5.0 2>/dev/null | cut -d= -f2- | xargs || true)
     local uptime_raw
+    # Очищаем вывод от скобок, которые часто вешает snmpget для Timeticks
     uptime_raw=$(snmpget -v2c -c "$community" -t 2 "$ip" 1.3.6.1.2.1.1.3.0 2>/dev/null | awk '{print $NF}' | tr -d '()'|| true)
     if [[ -n "$uptime_raw" && "$uptime_raw" =~ ^[0-9]+$ ]]; then
         local uptime_sec=$((uptime_raw / 100))
