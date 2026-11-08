@@ -29,7 +29,7 @@ mkdir -p "$STATE_DIR"
 required_tools=("top" "ps" "grep" "lsof" "ss" "netstat" "debsecan" "ip" "route")
 for cmd in "${required_tools[@]}"; do
     if ! command -v "$cmd" &> /dev/null; then
-        echo "${RED} Error: $cmd os not installed ${NC}"
+        echo "${RED} Error: $cmd is not installed ${NC}"
         exit 1
     fi
 done
@@ -361,7 +361,7 @@ check_illegal(){
         echo -e "${RED} White-list of hosts does not exist. ${NC}"
         return 0
     fi
-    if grep -qi -x -F -e "$ip" -e "$mac" -e "hostname" "$TRUSTED_HOSTS_FILE" 2>/dev/null; then
+    if grep -qi -x -F -e "$ip" -e "$mac" -e "$hostname" "$TRUSTED_HOSTS_FILE" 2>/dev/null; then
         return 0
     else
         return 1
