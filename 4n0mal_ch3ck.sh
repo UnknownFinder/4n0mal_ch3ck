@@ -256,7 +256,6 @@ nmpproc() {
         echo -e "${GREEN} No extreme load detected. ${NC}"
     fi
 }
-
 ntwcheck() {
     echo -e "${WHITE} === Checking up listening ports === ${NC}" | tee -a "$LOG_FILE"
     local CURR
@@ -269,7 +268,6 @@ ntwcheck() {
         rm -f "$CURR"
         return 0
     fi
-
     local ADDED REMOVED
     ADDED=$(comm -13 "$STATE_FILE" "$CURR" 2>/dev/null || true)
     REMOVED=$(comm -23 "$STATE_FILE" "$CURR" 2>/dev/null || true)
@@ -353,7 +351,6 @@ snmp_get_info(){
     sysdesc=$(snmpget -v2c -c "$community" -t 2 "$ip" 1.3.6.1.2.1.1.1.0 2>/dev/null | cut -d= -f2- | xargs || true)
     hostname=$(snmpget -v2c -c "$community" -t 2 "$ip" 1.3.6.1.2.1.1.5.0 2>/dev/null | cut -d= -f2- | xargs || true)
     local uptime_raw
-    # Очищаем вывод от скобок, которые часто вешает snmpget для Timeticks
     uptime_raw=$(snmpget -v2c -c "$community" -t 2 "$ip" 1.3.6.1.2.1.1.3.0 2>/dev/null | awk '{print $NF}' | tr -d '()'|| true)
     if [[ -n "$uptime_raw" && "$uptime_raw" =~ ^[0-9]+$ ]]; then
         local uptime_sec=$((uptime_raw / 100))
@@ -426,19 +423,15 @@ tempchck() {
 }
 krnmdlchck() {
     echo -e "${WHITE} === Checking Kernel Modules === ${NC}"
-
     while read -r modname _; do
         [ -z "$modname" ] && continue
         echo -e "${CYAN} Module: $modname ${NC}"
-        
         if check_module_path "$modname"; then
             echo -e "${GREEN} File: Found ${NC}"
         else
             echo -e "${YELLOW} File: Does not exist in $MODULES_DIR ${NC}"
         fi
-        
         check_signature "$modname"
-        
         local mod_path
         mod_path=$(modinfo -F filename "$modname" 2>/dev/null || true)
         if [[ -n "$mod_path" && "$mod_path" != "$MODULES_DIR"* ]]; then
@@ -446,9 +439,7 @@ krnmdlchck() {
         fi
     done < /proc/modules
 }
-
 #==================== Main code ====================
-
 run_zmbkiller=0; run_chkcron=0; run_nmpproc=0; run_ntwcheck=0
 run_sshcheck=0; run_pkgcheck=0; run_npswdcheck=0; run_ntwaudit=0
 run_tempchck=0; run_krnmdlchck=0; run_show_instruction=0
