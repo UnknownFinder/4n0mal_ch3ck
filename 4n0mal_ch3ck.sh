@@ -1,6 +1,7 @@
 #!/bin/bash
 # exec 2> /dev/null
-set -eu pipefail
+set -euo pipefail
+export LC_ALL=C
 #==================== Initialization of variables ====================
 readonly LOG_FILE="/var/log/listen_watch.log"
 readonly ALARM_LOG="/var/log/alarm_$(date +%Y%m%d_%H%M%S).log"
@@ -89,7 +90,6 @@ zmbkiller() {
 chkcron() {
     echo -e "${WHITE} === Checking up for frozen cron tasks === ${NC}"
     local found=0
-    # Исправлено: парсинг через awk с разделителем, чтобы cmd захватывал всю строку целиком
     while read -r line; do
         [ -z "$line" ] && continue
         local pid 
@@ -145,7 +145,7 @@ nmpproc() {
     local ps_pids proc_pids hidden_pids
     ps_pids=$(ps -e -o pid= 2>/dev/null | sort -n)
     proc_pids=$(ls /proc/ 2>/dev/null | grep -E '^[0-9]+$' | sort -n)
-    hidden_pids=$(comm -23 <(echo "$proc_pids") <(echo "$ps_pids") 2>/dev/null || true)
+    hidden_pids=$(comm -23 <(printf '%s\n' "$proc_pids") <(printf '%s\n' "$ps_pids") 2>/dev/null || true)
     
     if [ -n "$hidden_pids" ]; then
         echo -e "${ORANGE} Strange hidden PIDS: ${NC}"
@@ -344,7 +344,6 @@ snmp_get_info(){
     sysdesc=$(snmpget -v2c -c "$community" -t 2 "$ip" 1.3.6.1.2.1.1.1.0 2>/dev/null | cut -d= -f2- | xargs || true)
     hostname=$(snmpget -v2c -c "$community" -t 2 "$ip" 1.3.6.1.2.1.1.5.0 2>/dev/null | cut -d= -f2- | xargs || true)
     local uptime_raw
-    # Очищаем вывод от скобок, которые часто вешает snmpget для Timeticks
     uptime_raw=$(snmpget -v2c -c "$community" -t 2 "$ip" 1.3.6.1.2.1.1.3.0 2>/dev/null | awk '{print $NF}' | tr -d '()'|| true)
     if [[ -n "$uptime_raw" && "$uptime_raw" =~ ^[0-9]+$ ]]; then
         local uptime_sec=$((uptime_raw / 100))
@@ -362,7 +361,7 @@ check_illegal(){
         echo -e "${RED} White-list of hosts does not exist. ${NC}"
         return 0
     fi
-    if grep -qi -E "^$ip$|^$mac$|^$hostname$" "$TRUSTED_HOSTS_FILE" 2>/dev/null; then
+    if grep -qi -x -F -e "$ip" -e "$mac" -e "hostname" "$TRUSTED_HOSTS_FILE" 2>/dev/null; then
         return 0
     else
         return 1
