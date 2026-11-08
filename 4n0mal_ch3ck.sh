@@ -3,17 +3,25 @@
 set -eu pipefail
 #==================== Initialization of variables ====================
 readonly LOG_FILE="/var/log/listen_watch.log"
+readonly ALARM_LOG="/var/log/alarm_$(date +%Y%m%d_%H%M%S).log"
 readonly STATE_DIR="/var/lib/listen_watch"
 readonly STATE_FILE="$STATE_DIR/ports.txt"
+readonly PROPAGATE_LOG="/var/log/propagate.log"
+readonly ALREADY_RUN_FILE="$STATE_DIR/already_run_hosts.txt" 
 readonly MAX_CRON_TIME=1800
-readonly max_cpu=80
-readonly max_ram=80
-readonly ex_cpu=95
-readonly ex_mem=95
+readonly MAX_CPU=80
+readonly MAX_RAM=80
+readonly EX_CPU=95
+readonly EX_MEM=95
+
 RED='\033[31m'
-GREEN='\033[0;32m'
+ORANGE='\033[38;5;208m'
 YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
+GREEN='\033[0;32m'
+CYAN='\033[1;36m'
+BLUE='\033[1;34m'
+PURPLE='\033[1;35m'
+WHITE='\033[1;37m'
 NC='\033[0m'
 mkdir -p "$STATE_DIR"
 # ==================== Requirements ====================
@@ -31,26 +39,34 @@ rtcheck() {
         exit 1
     fi
 }
+
 display() {
     clear
-    if [ -f "eye.txt" ]; then
-        cat eye.txt
+    local script_dir
+    script_dir="$(dirname "$0")"
+    if [ -f "$script_dir/eye.txt" ]; then
+        cat "$script_dir/eye.txt"
     else
-        echo "${RED} Eye file not found, skipping. ${NC}"
+        echo -e "${ORANGE} Eye file not found, skipping. ${NC}"
     fi
-    sleep 5
+    sleep 3 
     clear
 }
+
 show_instruction() {
-    echo "[z] - check up for zombie processes"
-    echo "[c] - check up for anomalies in cron tasks"
-    echo "[p] - check up for strange/unusual processes"
-    echo "[n] - check up for network anomalies"
-    echo "[s] - check up for strange ssh events"
-    echo "[u] - check up for critical updates"
-    echo "[r] - check up for no-root commands"
-    echo "[h] - help"
+    echo -e "${WHITE} [z] - check up for zombie processes ${NC}"
+    echo -e "${WHITE} [c] - check up for anomalies in cron tasks ${NC}"
+    echo -e "${WHITE} [p] - check up for strange/unusual processes ${NC}"
+    echo -e "${WHITE} [n] - check up for network anomalies ${NC}"
+    echo -e "${WHITE} [s] - check up for strange ssh events ${NC}"
+    echo -e "${WHITE} [u] - check up for critical updates ${NC}"
+    echo -e "${WHITE} [r] - check up for no-root commands ${NC}"
+    echo -e "${WHITE} [a] - check up for illegal hosts in subnet ${NC}"
+    echo -e "${WHITE} [t] - check up system temperature ${NC}"
+    echo -e "${WHITE} [k] - check up kernel modules ${NC}"
+    echo -e "${WHITE} [h] - help ${NC}"
 }
+
 zmbkiller() {
     echo "=== Checking for zombie processes ==="
     zombies=$(ps aux | awk '$8 ~ /^[Zz]/ {print $2}')
@@ -69,60 +85,70 @@ zmbkiller() {
         echo "${GREEN} No zombie processes found. ${NC}"
     fi
 }
+
 chkcron() {
-    echo "=== Checking up for frozen cron tasks ==="
-    found=0
-    while read -r pid ppid etime cmd; do
-        total=0
+    echo -e "${WHITE} === Checking up for frozen cron tasks === ${NC}"
+    local found=0
+    # Исправлено: парсинг через awk с разделителем, чтобы cmd захватывал всю строку целиком
+    while read -r line; do
+        [ -z "$line" ] && continue
+        local pid 
+        local ppid 
+        local etime 
+        local cmd
+        pid=$(echo "$line" | awk '{print $1}')
+        ppid=$(echo "$line" | awk '{print $2}')
+        etime=$(echo "$line" | awk '{print $3}')
+        cmd=$(echo "$line" | cut -d' ' -f4-)
+
+        local total=0
         if [[ "$ppid" -eq 1 ]] && echo "$cmd" | grep -q cron; then
             continue
         fi
-        if echo "$cmd" | grep -q '/etc/cron\|CRON'; then
-            # Transform etime to readable format
+        if echo "$cmd" | grep -qE '/etc/cron|CRON'; then
             if [[ "$etime" =~ ^([0-9]+)-([0-9]{2}):([0-9]{2}):([0-9]{2})$ ]]; then
-                days="${BASH_REMATCH[1]}"
-                hours="${BASH_REMATCH[2]}"
-                mins="${BASH_REMATCH[3]}"
-                secs="${BASH_REMATCH[4]}"
-                total=$((days*86400 + hours*3600 + mins*60 + secs))
+                total=$(( BASH_REMATCH[1]*86400 + BASH_REMATCH[2]*3600 + BASH_REMATCH[3]*60 + BASH_REMATCH[4] ))
             elif [[ "$etime" =~ ^([0-9]{2}):([0-9]{2}):([0-9]{2})$ ]]; then
-                hours="${BASH_REMATCH[1]}"
-                mins="${BASH_REMATCH[2]}"
-                secs="${BASH_REMATCH[3]}"
-                total=$((hours*3600 + mins*60 + secs))
+                total=$(( BASH_REMATCH[1]*3600 + BASH_REMATCH[2]*60 + BASH_REMATCH[3] ))
             elif [[ "$etime" =~ ^([0-9]+):([0-9]{2})$ ]]; then
-                mins="${BASH_REMATCH[1]}"
-                secs="${BASH_REMATCH[2]}"
-                total=$((mins*60 + secs))
+                total=$(( BASH_REMATCH[1]*60 + BASH_REMATCH[2] ))
             elif [[ "$etime" =~ ^([0-9]+)$ ]]; then
                 total="${BASH_REMATCH[1]}"
             fi
+            
             if (( total > MAX_CRON_TIME )); then
-                echo "Зависшая задача: PID=$pid, работает уже ${total}s"
+                echo -e "${YELLOW} Frozen task: PID=$pid, running for ${total}s | Cmd: $cmd ${NC}"
                 found=1
             fi
         fi
-    done < <(ps -eo pid,ppid,etime,args --no-headers 2>/dev/null)
+    done < <(ps -eo pid,ppid,etime,args --no-headers 2>/dev/null || true)
 
     if [ $found -eq 0 ]; then
         echo "${GREEN} No frozen cron tasks found. ${NC}"
     fi
 
-    echo "=== Checking up for anomalous/unusual crontasks (perhaps rootkits) ==="
-    for user in $(cut -f1 -d: /etc/passwd); do
-        echo "••• $user •••"
-        crontab -u "$user" -l 2>/dev/null | grep -E 'bash.*curl|bash.*wget' || true
-    done
+    echo -e "${WHITE} === Checking for anomalous/unusual crontasks === ${NC}"
+    while IFS=: read -r user _; do
+        local cron_content
+        cron_content=$(crontab -u "$user" -l 2>/dev/null || true)
+        if [ -n "$cron_content" ] && echo "$cron_content" | grep -qE 'bash.*curl|bash.*wget'; then
+            echo -e "${CYAN} ••• $user ••• ${NC}"
+            echo "$cron_content" | grep -E 'bash.*curl|bash.*wget' || true
+        fi
+    done < /etc/passwd
 }
+
 nmpproc() {
-    echo "=== Searching anomaly processes ==="
-    sleep 2
-    echo "Comparing /proc and ps outputs"
-    ps_pids=$(ps -e -o pid= | sort -n)
-    proc_pids=$(ls /proc/ | grep -E '^[0-9]+$' | sort -n)
-    hidden_pids=$(comm -23 <(echo "$proc_pids") <(echo "$ps_pids"))
+    echo -e "${WHITE} === Searching anomaly processes === ${NC}"
+    sleep 1
+    echo -e "${WHITE} Comparing /proc and ps outputs ${NC}"
+    local ps_pids proc_pids hidden_pids
+    ps_pids=$(ps -e -o pid= 2>/dev/null | sort -n)
+    proc_pids=$(ls /proc/ 2>/dev/null | grep -E '^[0-9]+$' | sort -n)
+    hidden_pids=$(comm -23 <(echo "$proc_pids") <(echo "$ps_pids") 2>/dev/null || true)
+    
     if [ -n "$hidden_pids" ]; then
-        echo "Strange hidden PIDS:"
+        echo -e "${ORANGE} Strange hidden PIDS: ${NC}"
         for pid in $hidden_pids; do
             if [ -d "/proc/$pid" ]; then
                 ls -l "/proc/$pid/exe" 2>/dev/null || true
@@ -132,58 +158,67 @@ nmpproc() {
         done
     fi
 
-    echo "Processes of temporary directories:"
-    ps axeo pid,comm,args | grep -E '/(tmp|dev|run)/' | grep -v grep || true
+    echo -e "${WHITE} === Checking for processes with changed OOM score === ${NC}"
+    for f in /proc/[0-9]*/oom_score_adj; do
+        [ -e "$f" ] || continue
+        value=$(cat "$f" 2>/dev/null || true)
+        if [ "$value" != "0" ] && [ -n "$value" ]; then
+            local pid=${f#/proc/}
+            pid=${pid%/oom_score_adj}
+            echo -e "${YELLOW} PID $pid: OOM score adjusted to $value ${NC}"
+        fi
+    done
 
-    echo "Unnamed processes:"
-    ps axeo pid,comm | awk '$2 == "[]" || $2 == ""' || true
+    echo -e "${WHITE} Processes in temporary directories: ${NC}"
+    ps axeo pid,comm,args 2>/dev/null | grep -E '/(tmp|dev|run)/' | grep -v grep || true
 
-    echo "Non-typical incoming connections:"
-    if command -v lsof >/dev/null; then
-        lsof -i -nP | grep LISTEN | grep -Ev ':(22|80|443)' | grep -v "COMMAND" || true
-    else
-        echo "lsof not installed, skipping."
-    fi
+    echo -e "${WHITE} Unnamed processes: ${NC}"
+    ps axeo pid,comm 2>/dev/null | awk '$2 == "[]" || $2 == ""' || true
 
-    echo "=== Checking for high resource usage ==="
-    high_cpu_proc=$(ps -eo pid,pcpu,comm --no-headers | awk -v tresh="$max_cpu" '$2+0 >= tresh {print $1}')
-    high_ram_proc=$(ps -eo pid,pmem,comm --no-headers | awk -v tresh="$max_ram" '$2+0 >= tresh {print $1}')
+    echo -e "${WHITE} Non-typical incoming connections: ${NC}"
+    lsof -i -nP 2>/dev/null | grep LISTEN | grep -Ev ':(22|80|443)' | grep -v "COMMAND" || true
+
+    echo -e "${WHITE} === Checking for high resource usage === ${NC} "
+    high_cpu_proc=$(ps -eo pid,pcpu,comm --no-headers | awk -v tresh="$MAX_CPU" '$2+0 >= tresh {print $1}')
+    high_ram_proc=$(ps -eo pid,pmem,comm --no-headers | awk -v tresh="$MAX_RAM" '$2+0 >= tresh {print $1}')
 
     if [ -n "$high_cpu_proc" ] || [ -n "$high_ram_proc" ]; then
-        echo "Warning! Overloading is detected."
+        echo -e "${ORANGE} Warning! Overloading is detected. ${NC}"
         all_procs=$(echo "$high_cpu_proc $high_ram_proc" | tr ' ' '\n' | sort -u)
         for pid in $all_procs; do
+            if [ -z "$pid" ]; then continue; fi
             if ps -p "$pid" >/dev/null 2>&1; then
                 if [ "$pid" -eq 1 ] || [ "$pid" -eq 2 ] || [ "$pid" -eq $$ ]; then
-                    echo "Skipping system/self process $pid"
+                    echo -e "${YELLOW} Skipping system/self process $pid ${NC}"
                     continue
                 fi
-                echo "Changing priority for process $pid"
-                renice 15 -p "$pid" 2>/dev/null || echo "Failed to renice process $pid"
+                echo -e "${YELLOW} Changing priority for process $pid ${NC}"
+                renice 15 -p "$pid" 2>/dev/null || echo -e "${RED} Failed to renice process $pid ${NC}"
             fi
         done
     else
         echo "${GREEN} Overloading is not detected. ${NC}"
     fi
 
-    echo "=== Checking for extreme resource usage ==="
-    ex_cpu_proc=$(ps -eo pid,pcpu,comm --no-headers | awk -v tresh="$ex_cpu" '$2+0 >= tresh {print $1}')
-    ex_mem_proc=$(ps -eo pid,pmem,comm --no-headers | awk -v tresh="$ex_mem" '$2+0 >= tresh {print $1}')
+    echo -e "${WHITE} === Checking for extreme resource usage === ${NC}"
+    ex_cpu_proc=$(ps -eo pid,pcpu,comm --no-headers | awk -v tresh="$EX_CPU" '$2+0 >= tresh {print $1}')
+    ex_mem_proc=$(ps -eo pid,pmem,comm --no-headers | awk -v tresh="$EX_MEM" '$2+0 >= tresh {print $1}')
 
     if [ -n "$ex_cpu_proc" ] || [ -n "$ex_mem_proc" ]; then
-        echo "Warning! Extremely high load!"
+        echo -e "${RED} Warning! Extremely high load! ${NC}"
         all_ex_procs=$(echo "$ex_cpu_proc $ex_mem_proc" | tr ' ' '\n' | sort -u)
         for pid in $all_ex_procs; do
+            if [ -z "$pid" ]; then continue; fi
             if ps -p "$pid" >/dev/null 2>&1; then
                 if [ "$pid" -eq 1 ] || [ "$pid" -eq 2 ] || [ "$pid" -eq $$ ]; then
-                    echo "Skipping system/self process $pid"
+                    echo -e "${YELLOW} Skipping system/self process $pid ${NC}"
                     continue
                 fi
-                echo "Terminating process $pid"
+                echo -e "${YELLOW} Terminating process $pid ${NC}"
                 kill -15 "$pid" 2>/dev/null
                 sleep 2
                 if ps -p "$pid" >/dev/null 2>&1; then
-                    echo "Force killing process $pid"
+                    echo -e "${ORANGE} Force killing process $pid ${NC}"
                     kill -9 "$pid" 2>/dev/null
                 fi
             fi
@@ -192,30 +227,31 @@ nmpproc() {
         echo "${GREEN} No extreme load detected. ${NC}"
     fi
 }
+
 ntwcheck() {
-    echo "=== Checking up listening ports ===" | tee -a "$LOG_FILE"
+    echo -e "${WHITE} === Checking up listening ports === ${NC}" | tee -a "$LOG_FILE"
+    local CURR
     CURR=$(mktemp)
     ss -tulpn 2>/dev/null | awk 'NR>1 {print $1, $5}' | sort -u > "$CURR"
+    
     if [ ! -f "$STATE_FILE" ]; then
         cp "$CURR" "$STATE_FILE"
-        echo "Base of listening ports is created." | tee -a "$LOG_FILE"
+        echo -e "${BLUE} Base of listening ports is created. ${NC}" | tee -a "$LOG_FILE"
         rm -f "$CURR"
         return 0
     fi
 
+    local ADDED REMOVED
     ADDED=$(comm -13 "$STATE_FILE" "$CURR" 2>/dev/null || true)
     REMOVED=$(comm -23 "$STATE_FILE" "$CURR" 2>/dev/null || true)
-
-    [ -n "$ADDED" ] && echo "New ports: " | tee -a "$LOG_FILE" && echo "$ADDED" | tee -a "$LOG_FILE"
-    [ -n "$REMOVED" ] && echo "Closed ports:" | tee -a "$LOG_FILE" && echo "$REMOVED" | tee -a "$LOG_FILE"
-    [ -z "${ADDED}${REMOVED}" ] && echo "Nothing changed." | tee -a "$LOG_FILE"
-
+    [ -n "$ADDED" ] && echo -e "${YELLOW} New ports: ${NC}" | tee -a "$LOG_FILE" && echo "$ADDED" | tee -a "$LOG_FILE"
+    [ -n "$REMOVED" ] && echo -e "${YELLOW} Closed ports: ${NC}" | tee -a "$LOG_FILE" && echo "$REMOVED" | tee -a "$LOG_FILE"
+    [ -z "${ADDED}${REMOVED}" ] && echo -e "${GREEN} Nothing changed. ${NC}" | tee -a "$LOG_FILE"
     cp "$CURR" "$STATE_FILE"
     rm -f "$CURR"
-}
-
+    }
 sshcheck() {
-    echo "=== Checking up for strange things with SSH ==="
+    echo -e "${WHITE} === Checking up for strange things with SSH === ${NC}"
     sleep 1
     {
     local ALARM_LOG="/var/log/alarm_$(date +%Y%m%d_%H%M%S).log"
@@ -268,21 +304,17 @@ sshcheck() {
         echo "--- lsof -i -P -n | grep ESTABLISHED ---"
         if command -v lsof >/dev/null; then lsof -i -P -n 2>/dev/null | grep ESTABLISHED || true; fi
     } > "$ALARM_LOG" 2>&1
-
-    echo "SSH check log saved to $ALARM_LOG"
+    echo -e "${GREEN} SSH check log saved to $ALARM_LOG ${NC}"
 }
-
 pkgcheck() {
-    echo "=== Checking up for missed security updates ==="
+    echo -e "${WHITE} === Checking up for missed security updates === ${NC}"
     local LOG="/var/log/critical-updates.log"
-    local THRESHOLD=7.0
     local critical_pkgs=""
-
     if ! command -v debsecan >/dev/null 2>&1; then
-        echo "debsecan not installed, skipping critical updates check." | tee -a "$LOG"
-        return 0
+        echo -e "${YELLOW} debsecan not installed, skipping critical CVE check. ${NC}"
+    return 0
     fi
-
+    local updates
     updates=$(apt list --upgradable 2>/dev/null | grep -v "Listing" | cut -d/ -f1 || true)
     for pkg in $updates; do
         cve_count=$(debsecan --suite "$(lsb_release -sc 2>/dev/null)" --only-fixed --package "$pkg" 2>/dev/null | \
@@ -291,36 +323,128 @@ pkgcheck() {
             critical_pkgs="${critical_pkgs}\n- $pkg (исправляет $cve_count критических CVE)"
         fi
     done
-
     if [ -n "$critical_pkgs" ]; then
-        echo -e "Критические уведомления безопасности:\n$critical_pkgs"
-        if command -v notify-send >/dev/null 2>&1; then
-            echo -e "$critical_pkgs" | notify-send -u critical -t 0 "Обновления безопасности" "$(cat)"
-        fi
+        echo -e "${ORANGE} Critical security notifications:\n$critical_pkgs ${NC}"
+    if command -v notify-send >/dev/null 2>&1; then
+        notify-send -u critical -t 0 "Обновления безопасности" "$critical_pkgs" || true
+    fi
         echo "$(date): Найдены критические обновления: $critical_pkgs" >> "$LOG"
     else
         echo "${GREEN} No critical updates found. ${NC}"
     fi
 }
-
 npswdcheck() {
     echo "=== Checking up for NOPASSWD-commands ==="
     sudo -l 2>/dev/null | grep NOPASSWD || echo "${GREEN} No NOPASSWD entries found. ${NC}"
 }
+snmp_get_info(){
+    local ip=$1
+    local community="${SNMP_COMMUNITY:-public}"
+    local sysdesc="" hostname="" uptime_human="N/A"
+    sysdesc=$(snmpget -v2c -c "$community" -t 2 "$ip" 1.3.6.1.2.1.1.1.0 2>/dev/null | cut -d= -f2- | xargs || true)
+    hostname=$(snmpget -v2c -c "$community" -t 2 "$ip" 1.3.6.1.2.1.1.5.0 2>/dev/null | cut -d= -f2- | xargs || true)
+    local uptime_raw
+    # Очищаем вывод от скобок, которые часто вешает snmpget для Timeticks
+    uptime_raw=$(snmpget -v2c -c "$community" -t 2 "$ip" 1.3.6.1.2.1.1.3.0 2>/dev/null | awk '{print $NF}' | tr -d '()'|| true)
+    if [[ -n "$uptime_raw" && "$uptime_raw" =~ ^[0-9]+$ ]]; then
+        local uptime_sec=$((uptime_raw / 100))
+        local days=$((uptime_sec / 86400))
+        local hours=$(( (uptime_sec % 86400) / 3600 ))
+        local mins=$(( (uptime_sec % 3600) / 60 ))
+        local secs=$((uptime_sec % 60))
+        uptime_human=$(printf "%d days, %02d:%02d:%02d" "$days" "$hours" "$mins" "$secs")
+    fi
+    echo "IP: $ip | Hostname: ${hostname:-N/A} | Uptime: $uptime_human | OS: ${sysdesc:-N/A}"
+    }
+check_illegal(){
+    local ip="$1" mac="$2" hostname="$3"
+    if [ ! -f "$TRUSTED_HOSTS_FILE" ]; then
+        echo -e "${RED} White-list of hosts does not exist. ${NC}"
+        return 0
+    fi
+    if grep -qi -E "^$ip$|^$mac$|^$hostname$" "$TRUSTED_HOSTS_FILE" 2>/dev/null; then
+        return 0
+    else
+        return 1
+    fi
+}
+ntwaudit(){
+    echo -e "${WHITE} === Searching illegal hosts === ${NC}" | tee -a "$LOG_FILE"
+    local hosts_file="/tmp/live_hosts_$$.txt"
+    local illegal_log="/var/log/illegal_hosts.log"
+    if [ ! -f "$TRUSTED_HOSTS_FILE" ]; then
+        echo -e "${BLUE} Creating empty trusted hosts file: $TRUSTED_HOSTS_FILE. ${NC}" | tee -a "$LOG_FILE"
+        touch "$TRUSTED_HOSTS_FILE"
+    fi
+    discover_hosts "$NETWORK_SUBNET" > "$hosts_file"
+    local total_hosts
+    total_hosts=$(wc -l < "$hosts_file" | tr -d ' ')
+    echo -e "${BLUE} Found alive hosts: $total_hosts ${NC}" | tee -a "$LOG_FILE"
+    if [ "$total_hosts" -eq 0 ]; then
+        echo -e "${YELLOW} No alive hosts found. ${NC}"
+        rm -f "$hosts_file"
+        return 0
+    fi
+    local illegal_found=0
+    while read -r ip; do
+        [ -z "$ip" ] && continue
+        local mac snmp_info hostname
+        mac=$(ip neigh show "$ip" 2>/dev/null | awk '{print $5}' || true)
+        snmp_info=$(snmp_get_info "$ip")
+        hostname=$(echo "$snmp_info" | grep -oP 'Hostname: \K[^ ]+' | head -1 || true)
+        hostname="${hostname:-unknown}"
+        if check_illegal "$ip" "$mac" "$hostname"; then
+            echo -e "${GREEN} $ip ($hostname) - LEGAL ${NC}"
+        else
+            echo -e "${RED} $ip ($hostname) - ILLEGAL ${NC}"
+        illegal_found=1
+            echo "Getting info from $ip" | tee -a "$LOG_FILE"
+            snmpwalk -v2c -c "$SNMP_COMMUNITY" "$ip" 1.3.6.1.2.1.25.4.2.1.2 > "/tmp/snmp_procs_${ip}.txt" 2>/dev/null || true
+            snmpwalk -v2c -c "$SNMP_COMMUNITY" "$ip" 1.3.6.1.4.1.2021.8 > "/tmp/snmp_users_${ip}.txt" 2>/dev/null || true
+            echo -e "${GREEN} Saved in /tmp/snmp_*_$ip.txt ${NC}" | tee -a "$LOG_FILE"
+        fi
+    done < "$hosts_file"
+    rm -f "$hosts_file"
+    if [ "$illegal_found" -eq 0 ]; then
+        echo -e "${GREEN} No illegal hosts found. ${NC}" | tee -a "$LOG_FILE"
+    else
+        echo -e "${RED} [!] Founded illegal hosts! Check up the logs: $illegal_log ${NC}" | tee -a "$LOG_FILE"
+    fi
+}
+tempchck() {
+    echo -e "${WHITE} === System Temperature === ${NC}"
+    sensors 2>/dev/null || echo -e "${YELLOW} No sensors found or not configured. ${NC}"
+}
+krnmdlchck() {
+    echo -e "${WHITE} === Checking Kernel Modules === ${NC}"
 
-# ==================== Main code ====================
+    while read -r modname _; do
+        [ -z "$modname" ] && continue
+        echo -e "${CYAN} Module: $modname ${NC}"
+        
+        if check_module_path "$modname"; then
+            echo -e "${GREEN} File: Found ${NC}"
+        else
+            echo -e "${YELLOW} File: Does not exist in $MODULES_DIR ${NC}"
+        fi
+        
+        check_signature "$modname"
+        
+        local mod_path
+        mod_path=$(modinfo -F filename "$modname" 2>/dev/null || true)
+        if [[ -n "$mod_path" && "$mod_path" != "$MODULES_DIR"* ]]; then
+            echo -e "${ORANGE} Unusual loading path: $mod_path ${NC}"
+        fi
+    done < /proc/modules
+}
 
-run_zmbkiller=0
-run_chkcron=0
-run_nmpproc=0
-run_ntwcheck=0
-run_sshcheck=0
-run_pkgcheck=0
-run_npswdcheck=0
-run_show_instruction=0
+#==================== Main code ====================
+
+run_zmbkiller=0; run_chkcron=0; run_nmpproc=0; run_ntwcheck=0
+run_sshcheck=0; run_pkgcheck=0; run_npswdcheck=0; run_ntwaudit=0
+run_tempchck=0; run_krnmdlchck=0; run_show_instruction=0
 run_all=1
-
-while getopts "zcpnsurh" opt; do
+while getopts "zcpnsurathk" opt; do
     case $opt in
         z) run_all=0; run_zmbkiller=1 ;;
         c) run_all=0; run_chkcron=1 ;;
@@ -329,24 +453,21 @@ while getopts "zcpnsurh" opt; do
         s) run_all=0; run_sshcheck=1 ;;
         u) run_all=0; run_pkgcheck=1 ;;
         r) run_all=0; run_npswdcheck=1 ;;
+        a) run_all=0; run_ntwaudit=1 ;;
+        t) run_all=0; run_tempchck=1 ;;
+        k) run_all=0; run_krnmdlchck=1 ;;
         h) run_all=0; run_show_instruction=1 ;;
-        \?) echo "Unknown option! Check the README file, mazafaka!" >&2; exit 1 ;;
+        ?) echo -e "${RED} Unknown option! Check the README file. ${NC}" >&2; exit 1 ;;
     esac
 done
-
 if [ $run_all -eq 1 ]; then
-    run_zmbkiller=1
-    run_chkcron=1
-    run_nmpproc=1
-    run_ntwcheck=1
-    run_sshcheck=1
-    run_pkgcheck=1
+    run_zmbkiller=1; run_chkcron=1; run_nmpproc=1; run_ntwcheck=1
+    run_sshcheck=1; run_pkgcheck=1; run_npswdcheck=1; run_ntwaudit=1
+    run_tempchck=1; run_krnmdlchck=1
 fi
-
 rtcheck
 display
-echo "=== System Monitor Script started at $(date) ==="
-
+echo -e "${WHITE} === System Monitor Script started at $(date) === ${NC}"
 [ $run_zmbkiller -eq 1 ] && zmbkiller
 [ $run_chkcron -eq 1 ] && chkcron
 [ $run_nmpproc -eq 1 ] && nmpproc
@@ -354,6 +475,8 @@ echo "=== System Monitor Script started at $(date) ==="
 [ $run_sshcheck -eq 1 ] && sshcheck
 [ $run_pkgcheck -eq 1 ] && pkgcheck
 [ $run_npswdcheck -eq 1 ] && npswdcheck
+[ $run_ntwaudit -eq 1 ] && ntwaudit
+[ $run_tempchck -eq 1 ] && tempchck
+[ $run_krnmdlchck -eq 1 ] && krnmdlchck
 [ $run_show_instruction -eq 1 ] && show_instruction
-
-echo "=== System Monitor Script finished at $(date) ==="
+echo -e "${WHITE} === System Monitor Script finished at $(date) === ${NC}"
