@@ -81,6 +81,13 @@ display() {
     clear
 }
 
+update() {
+    cd $(dirname "$0")
+    OLD=$(git rev-parse HEAD)
+    git pull --rebase --autostash --ff-only origin "$(git branch --show-current)" 2&>/dev/null
+    NEW=$(git rev-parse HEAD)
+    [[ "$OLD" != "$NEW" ]] && echo "Successful updated!" || echo "Already last version."
+}
 show_instruction() {
     echo -e "${WHITE} [z] - check up for zombie processes ${NC}"
     echo -e "${WHITE} [c] - check up for anomalies in cron tasks ${NC}"
@@ -94,6 +101,7 @@ show_instruction() {
     echo -e "${WHITE} [t] - check up system temperature ${NC}"
     echo -e "${WHITE} [k] - check up kernel modules ${NC}"
     echo -e "${WHITE} [h] - help ${NC}"
+    echo -e "${WHITE} [U] - Update repository ${NC}"
 }
 
 zmbkiller() {
@@ -469,9 +477,9 @@ krnmdlchck() {
 #==================== Main code ====================
 run_zmbkiller=0; run_chkcron=0; run_nmpproc=0; run_chckdaemon=0 ; run_ntwcheck=0
 run_sshcheck=0; run_pkgcheck=0; run_npswdcheck=0; run_ntwaudit=0
-run_tempchck=0; run_krnmdlchck=0; run_show_instruction=0
+run_tempchck=0; run_krnmdlchck=0; run_show_instruction=0; run_update=0
 run_all=1
-while getopts "zcpnsurathk" opt; do
+while getopts "zcpnsurathkU" opt; do
     case $opt in
         z) run_all=0; run_zmbkiller=1 ;;
         c) run_all=0; run_chkcron=1 ;;
@@ -485,6 +493,7 @@ while getopts "zcpnsurathk" opt; do
         t) run_all=0; run_tempchck=1 ;;
         k) run_all=0; run_krnmdlchck=1 ;;
         h) run_all=0; run_show_instruction=1 ;;
+        U) run_all=0; run_update=1;;
         ?) echo -e "${RED} Unknown option! Check the README file. ${NC}" >&2; exit 1 ;;
     esac
 done
@@ -508,4 +517,5 @@ echo -e "${WHITE} === System Monitor Script started at $(date) === ${NC}"
 [ $run_tempchck -eq 1 ] && tempchck
 [ $run_krnmdlchck -eq 1 ] && krnmdlchck
 [ $run_show_instruction -eq 1 ] && show_instruction
+[ $run_update -eq 1 ] && update
 echo -e "${WHITE} === System Monitor Script finished at $(date) === ${NC}"
