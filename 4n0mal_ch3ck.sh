@@ -54,13 +54,13 @@ check_signature() {
     }
 
 # ==================== Requirements ====================
-required_tools=("top" "ps" "grep" "lsof" "ss" "ip" "route" "nmap" "arp-scan" "snmpget" "snmpwalk" "sensors" "lsb_release")
-for cmd in "${required_tools[@]}"; do
-    if ! command -v "$cmd" &> /dev/null; then
-        echo -e "${RED} Error: $cmd is not installed ${NC}"
-        exit 1
-    fi
-done
+#required_tools=("top" "ps" "grep" "lsof" "ss" "ip" "route" "nmap" "arp-scan" "snmpget" "snmpwalk" "sensors" "lsb_release")
+#for cmd in "${required_tools[@]}"; do
+#    if ! command -v "$cmd" &> /dev/null; then
+#        echo -e "${RED} Error: $cmd is not installed ${NC}"
+#        sudo apt update && sudo apt install "$cmd"
+#    fi
+#done
 
 # ==================== Initialization of functions ====================
 rtcheck() {
@@ -333,12 +333,19 @@ npswdcheck() {
     sudo -l 2>/dev/null | grep NOPASSWD || echo -e "${GREEN} No NOPASSWD entries found. ${NC}"
 }
 discover_hosts(){
-    local subnet="${1:-$NETWORK_SUBNET}"
+    local active_iface
+    active_iface=$(ip route | awk '/default/ {print $5; exit}')
+    local detected_subnet
+    detected_subnet=$(ip route | grep "dev ${active_iface:-}" | awk '/proto kernel/ {print $1; exit}')
+    local subnet="${1:-${NETWORK_SUBNET:-${detected_subnet:-192.168.1.0/24}}}"
     local tmp_file="/tmp/hosts_$$.txt"
     rm -f "$tmp_file"
+    echo -e "${BLUE} Target subnet: $subnet ${NC}"
     echo -e "${BLUE} Scanning network for alive hosts... ${NC}"
-    nmap -sn "$subnet" -oG - 2>/dev/null | awk '/Up$/{print $2}' >> "$tmp_file" || true
-    arp-scan --local --quiet 2>/dev/null | grep -E '^[0-9]+.[0-9]+.[0-9]+' | awk '{print $1}' >> "$tmp_file" || true
+    nmap -sn -T4 --min-parallelism 100 --max-rtt-timeout 50ms "$subnet" -oG - 2>/dev/null | awk '/Up$/{print $2}' >> "$tmp_file" || true
+    if [ -n "$active_iface" ]; then
+        arp-scan --interface="$active_iface" --local --quiet --timeout=50 --retry=1 2>/dev/null | grep -E '^[0-9]+.[0-9]+.[0-9]+' | awk '{print $1}' >> "$tmp_file" || true
+    fi
     sort -u "$tmp_file" -o "$tmp_file"
     sed -i '/^$/d' "$tmp_file"
     cat "$tmp_file"
