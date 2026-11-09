@@ -271,7 +271,7 @@ chckdaemon(){
             systemctl cat '*' | grep -B 1 -E 'ExecStart=.*(/tmp|/var/tmp|/dev/shm|/run|\.local|\.cache|/\.([^/]+))'
         fi
     done
-    echo "=== Daemons with  ==="
+    echo "=== Daemons with perhaps rootkit config (curl | bash | wget | python) ==="
     for daemon in /etc/systemd/system ; do
         if [ -f "$daemon" ]; then
             systemctl cat '*' | grep -B 1 -E 'ExecStart=.*(sh -c|bash -c|eval|base64|curl|wget|python -c)'
@@ -479,7 +479,7 @@ run_zmbkiller=0; run_chkcron=0; run_nmpproc=0; run_chckdaemon=0 ; run_ntwcheck=0
 run_sshcheck=0; run_pkgcheck=0; run_npswdcheck=0; run_ntwaudit=0
 run_tempchck=0; run_krnmdlchck=0; run_show_instruction=0; run_update=0
 run_all=1
-while getopts "zcpnsurathkU" opt; do
+while getopts "zcpdnsurathkU" opt; do
     case $opt in
         z) run_all=0; run_zmbkiller=1 ;;
         c) run_all=0; run_chkcron=1 ;;
@@ -498,7 +498,7 @@ while getopts "zcpnsurathkU" opt; do
     esac
 done
 if [ $run_all -eq 1 ]; then
-    run_zmbkiller=1; run_chkcron=1; run_nmpproc=1; run_ntwcheck=1
+    run_zmbkiller=1; run_chkcron=1; run_nmpproc=1; run_chckdaemon=1; run_ntwcheck=1
     run_sshcheck=1; run_pkgcheck=1; run_npswdcheck=1; run_ntwaudit=1
     run_tempchck=1; run_krnmdlchck=1
 fi
