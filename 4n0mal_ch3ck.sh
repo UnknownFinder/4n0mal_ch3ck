@@ -13,7 +13,6 @@ readonly MAX_CPU=80
 readonly MAX_RAM=80
 readonly EX_CPU=95
 readonly EX_MEM=95
-
 RED='\033[31m'
 ORANGE='\033[38;5;208m'
 YELLOW='\033[1;33m'
@@ -23,7 +22,6 @@ BLUE='\033[1;34m'
 PURPLE='\033[1;35m'
 WHITE='\033[1;37m'
 NC='\033[0m'
-
 mkdir -p "$STATE_DIR"
 KERNEL_VER=$(uname -r)
 MODULES_DIR="/lib/modules/$KERNEL_VER"
@@ -87,6 +85,7 @@ show_instruction() {
     echo -e "${WHITE} [z] - check up for zombie processes ${NC}"
     echo -e "${WHITE} [c] - check up for anomalies in cron tasks ${NC}"
     echo -e "${WHITE} [p] - check up for strange/unusual processes ${NC}"
+    echo -e "${WHITE} [d] - check up for strange daemons ${NC}"
     echo -e "${WHITE} [n] - check up for network anomalies ${NC}"
     echo -e "${WHITE} [s] - check up for strange ssh events ${NC}"
     echo -e "${WHITE} [u] - check up for critical updates ${NC}"
@@ -255,6 +254,27 @@ nmpproc() {
     else
         echo -e "${GREEN} No extreme load detected. ${NC}"
     fi
+}
+chckdaemon(){
+    echo "=== Daemons from strange/hidden directories ==="
+    for daemon in /etc/systemd/system ; do
+        if [ -f "$daemon" ]; then
+        #sudo cat '*' | awk '^# / { file=$0 } ExecStart= { if ($0 ~ /(\/tmp|\/var\/tmp|\/dev\/shm|\/run|\/\.[^\/])/ || $0 ~ /(bash -c|sh -c|eval|base64|curl|wget)/ || $0 ~ /(kworker|kthrotld|miner|xmr)/) {print "\033[0;31m[ВНИМАНИЕ! ПОДОЗРИТЕЛЬНО]\033[0m" print file print $0 print "----------------------------------------" } }'
+            systemctl cat '*' | grep -B 1 -E 'ExecStart=.*(/tmp|/var/tmp|/dev/shm|/run|\.local|\.cache|/\.([^/]+))'
+        fi
+    done
+    echo "=== Daemons with  ==="
+    for daemon in /etc/systemd/system ; do
+        if [ -f "$daemon" ]; then
+            systemctl cat '*' | grep -B 1 -E 'ExecStart=.*(sh -c|bash -c|eval|base64|curl|wget|python -c)'
+        fi
+    done
+    echo "=== Daemons from strange/hidden directories ==="
+    for daemon in /etc/systemd/system ; do
+        if [ -f "$daemon" ]; then
+            systemctl cat '*' | grep -B 1 -iE '(kworker|kthrotld|syslogd|crypto|miner|xmr)'
+        fi
+    done
 }
 ntwcheck() {
     echo -e "${WHITE} === Checking up listening ports === ${NC}" | tee -a "$LOG_FILE"
@@ -447,7 +467,7 @@ krnmdlchck() {
     done < /proc/modules
 }
 #==================== Main code ====================
-run_zmbkiller=0; run_chkcron=0; run_nmpproc=0; run_ntwcheck=0
+run_zmbkiller=0; run_chkcron=0; run_nmpproc=0; run_chckdaemon=0 ; run_ntwcheck=0
 run_sshcheck=0; run_pkgcheck=0; run_npswdcheck=0; run_ntwaudit=0
 run_tempchck=0; run_krnmdlchck=0; run_show_instruction=0
 run_all=1
@@ -456,6 +476,7 @@ while getopts "zcpnsurathk" opt; do
         z) run_all=0; run_zmbkiller=1 ;;
         c) run_all=0; run_chkcron=1 ;;
         p) run_all=0; run_nmpproc=1 ;;
+        d) run_all=0; run_chckdaemon=1;;
         n) run_all=0; run_ntwcheck=1 ;;
         s) run_all=0; run_sshcheck=1 ;;
         u) run_all=0; run_pkgcheck=1 ;;
@@ -478,6 +499,7 @@ echo -e "${WHITE} === System Monitor Script started at $(date) === ${NC}"
 [ $run_zmbkiller -eq 1 ] && zmbkiller
 [ $run_chkcron -eq 1 ] && chkcron
 [ $run_nmpproc -eq 1 ] && nmpproc
+[ $run_chckdaemon -eq 1 ] && chckdaemon
 [ $run_ntwcheck -eq 1 ] && ntwcheck
 [ $run_sshcheck -eq 1 ] && sshcheck
 [ $run_pkgcheck -eq 1 ] && pkgcheck
